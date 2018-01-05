@@ -22,7 +22,11 @@ void atexit_hook() {
   printf("quarantine max: %ld B, cur: %ld B\n", quarantine_max, quarantine_size);
 }
 
-void __attribute__((constructor)) init_interposer() {
+void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
+  static int initialized = 0;
+
+  if (initialized) return;
+  initialized = 1;
 
   if (atexit(atexit_hook))
     printf("atexit failed!\n");
@@ -38,6 +42,9 @@ void __attribute__((constructor)) init_interposer() {
   }
   printf("[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n", (long)global_ptrlog);
 }
+
+__attribute__((section(".preinit_array"),
+               used)) void (*init_ls_preinit)(void) = init_lazysan;
 
 /*****************************/
 /**  Refcnt modification  ****/
