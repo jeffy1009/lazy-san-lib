@@ -43,10 +43,10 @@ void __attribute__((constructor)) init_interposer() {
                        -1, 0);
   if (global_ptrlog == (void*)-1) {
      /* strangely, perror() segfaults */
-    printf("[interposer] global_ptrlog mmap failed: errno %d\n", errno);
+    printf("[lazy-san] global_ptrlog mmap failed: errno %d\n", errno);
     exit(0);
   }
-  printf("[interposer] global_ptrlog mmap'ed @ 0x%lx\n", (long)global_ptrlog);
+  printf("[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n", (long)global_ptrlog);
 }
 
 /*****************************/
@@ -66,7 +66,7 @@ void ls_inc_refcnt(char *p, char *dest) {
   n = RBExactQuery(rb_root, p);
   if (n) {
     if ((n->flags & RB_INFO_FREED) && n->refcnt == REFCNT_INIT)
-      printf("[interposer] refcnt became alive again??\n");
+      printf("[lazy-san] refcnt became alive again??\n");
     ++n->refcnt;
   }
 
@@ -87,7 +87,7 @@ void ls_dec_refcnt(char *p, char *dummy) {
   if (n) { /* is heap node */
     if (n->refcnt<=REFCNT_INIT && !(n->flags & RB_INFO_RCBELOWZERO)) {
       n->flags |= RB_INFO_RCBELOWZERO;
-      /* printf("[interposer] refcnt <= 0???\n"); */
+      /* printf("[lazy-san] refcnt <= 0???\n"); */
     }
     --n->refcnt;
     if (n->refcnt<=0) {
@@ -210,7 +210,7 @@ void ls_dec_ptrlog(char *p, long size) {
 }
 
 /********************/
-/**  Interposer  ****/
+/**  Wrappers  ******/
 /********************/
 
 static rb_red_blk_node *alloc_common(char *base, long size) {
@@ -224,7 +224,7 @@ static rb_red_blk_node *alloc_common(char *base, long size) {
     quarantine_mb_tmp = quarantine_max/1024/1024;
     if (quarantine_mb_tmp > quarantine_max_mb) {
       quarantine_max_mb = quarantine_mb_tmp;
-      printf("[interposer] quarantine_max = %ld MB\n", quarantine_max_mb);
+      printf("[lazy-san] quarantine_max = %ld MB\n", quarantine_max_mb);
     }
   }
 
@@ -238,7 +238,7 @@ static void free_common(char *base, rb_red_blk_node *n) {
   --alloc_cur;
 
   if (n->flags & RB_INFO_FREED)
-    printf("[interposer] double free??????\n");
+    printf("[lazy-san] double free??????\n");
 
   if (n->refcnt <= 0) {
     free_func(base);
@@ -252,7 +252,7 @@ static void free_common(char *base, rb_red_blk_node *n) {
 void *malloc(size_t size) {
   char *ret = malloc_func(size);
   if (!ret)
-    printf("[interposer] malloc failed ??????\n");
+    printf("[lazy-san] malloc failed ??????\n");
   alloc_common(ret, size);
   return(ret);
 }
@@ -260,7 +260,7 @@ void *malloc(size_t size) {
 void *calloc(size_t num, size_t size) {
   char *ret = calloc_func(num, size);
   if (!ret)
-    printf("[interposer] calloc failed ??????\n");
+    printf("[lazy-san] calloc failed ??????\n");
   alloc_common(ret, num*size);
   return(ret);
 }
@@ -276,14 +276,14 @@ void *realloc(void *ptr, size_t size) {
   orig_n = RBExactQuery(rb_root, p);
 
   if (orig_n->base != p)
-    printf("[interposer] ptr != base in realloc ??????\n");
+    printf("[lazy-san] ptr != base in realloc ??????\n");
   if ((p+size) <= orig_n->end)
     return p;
 
   /* just malloc */
   ret = malloc_func(size);
   if (!ret)
-    printf("[interposer] malloc failed ??????\n");
+    printf("[lazy-san] malloc failed ??????\n");
 
   new_n = alloc_common(ret, size);
 
