@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 #include <stdio.h>
-#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -15,11 +14,6 @@ long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
 long num_ptrs = 0;
 long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
 
-void* (*malloc_func)(size_t size) = NULL;
-void* (*calloc_func)(size_t num, size_t size) = NULL;
-void* (*realloc_func)(void *ptr, size_t size) = NULL;
-void (*free_func)(void *ptr) = NULL;
-
 void atexit_hook() {
   printf("PROGRAM TERMINATED!\n");
   printf("max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
@@ -29,10 +23,6 @@ void atexit_hook() {
 }
 
 void __attribute__((constructor)) init_interposer() {
-  malloc_func = (void *(*)(size_t)) dlsym(RTLD_NEXT, "malloc");
-  calloc_func = (void *(*)(size_t, size_t)) dlsym(RTLD_NEXT, "calloc");
-  realloc_func = (void *(*)(void *, size_t)) dlsym(RTLD_NEXT, "realloc");
-  free_func = (void (*)(void*)) dlsym(RTLD_NEXT, "free");
 
   if (atexit(atexit_hook))
     printf("atexit failed!\n");
@@ -93,7 +83,7 @@ void ls_dec_refcnt(char *p, char *dummy) {
     if (n->refcnt<=0) {
       if (n->flags & RB_INFO_FREED) { /* marked to be freed */
         quarantine_size -= n->size;
-        free_func(n->base);
+        free(n->base);
         RBDelete(rb_root, n);
       }
       /* if n is not yet freed, the pointer is probably in some
@@ -241,7 +231,7 @@ static void free_common(char *base, rb_red_blk_node *n) {
     printf("[lazy-san] double free??????\n");
 
   if (n->refcnt <= 0) {
-    free_func(base);
+    free(base);
     RBDelete(rb_root, n);
   } else {
     n->flags |= RB_INFO_FREED;
@@ -249,23 +239,23 @@ static void free_common(char *base, rb_red_blk_node *n) {
   }
 }
 
-void *malloc(size_t size) {
-  char *ret = malloc_func(size);
+void *malloc_wrap(size_t size) {
+  char *ret = malloc(size);
   if (!ret)
     printf("[lazy-san] malloc failed ??????\n");
   alloc_common(ret, size);
   return(ret);
 }
 
-void *calloc(size_t num, size_t size) {
-  char *ret = calloc_func(num, size);
+void *calloc_wrap(size_t num, size_t size) {
+  char *ret = calloc(num, size);
   if (!ret)
     printf("[lazy-san] calloc failed ??????\n");
   alloc_common(ret, num*size);
   return(ret);
 }
 
-void *realloc(void *ptr, size_t size) {
+void *realloc_wrap(void *ptr, size_t size) {
   char *p = (char*)ptr;
   rb_red_blk_node *orig_n, *new_n;
   char *ret;
@@ -281,7 +271,7 @@ void *realloc(void *ptr, size_t size) {
     return p;
 
   /* just malloc */
-  ret = malloc_func(size);
+  ret = malloc(size);
   if (!ret)
     printf("[lazy-san] malloc failed ??????\n");
 
@@ -296,7 +286,7 @@ void *realloc(void *ptr, size_t size) {
   return(ret);
 }
 
-void free(void *ptr) {
+void free_wrap(void *ptr) {
   rb_red_blk_node *n;
 
   if (ptr==NULL)
@@ -309,7 +299,7 @@ void free(void *ptr) {
     /* NOTE: there can be a dangling pointer in the register
        and that register value could later be stored in memory.
        Should we handle this case?? */
-    free_func(ptr);
+    free(ptr);
     return;
   }
 

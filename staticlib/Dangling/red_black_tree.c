@@ -3,11 +3,6 @@
 #include <stdlib.h>
 #include "red_black_tree.h"
 
-extern void* (*malloc_func)(size_t size);
-extern void (*free_func)(void *ptr);
-#define malloc malloc_func
-#define free free_func
-
 rb_red_blk_tree *rb_root = NULL;
 
 void __attribute__((constructor)) init_rb_tree() {
