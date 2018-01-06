@@ -33,7 +33,7 @@ static void delete_obj_info(ls_obj_info *info) {
   RBDelete(rb_root, RBExactQuery(rb_root, info->base));
 }
 
-#else
+#else /* !USE_RBTREE */
 
 #define LS_META_SPACE_MAX_SIZE 0x02000000 /* 32MB */
 
@@ -77,9 +77,9 @@ static void delete_obj_info(ls_obj_info *info) {
 
 #endif
 
-long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
-long num_ptrs = 0;
-long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
+unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
+unsigned long num_ptrs = 0;
+unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
 
 void atexit_hook() {
   printf("PROGRAM TERMINATED!\n");
@@ -107,7 +107,8 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
     printf("[lazy-san] global_ptrlog mmap failed: errno %d\n", errno);
     exit(0);
   }
-  printf("[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n", (long)global_ptrlog);
+  printf("[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n",
+         (unsigned long)global_ptrlog);
 
 #ifndef USE_RBTREE
   ls_meta_space = mmap((void*)0x00007dff8000, LS_META_SPACE_MAX_SIZE,
@@ -119,7 +120,8 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
     printf("[lazy-san] ls_meta_space mmap failed: errno %d\n", errno);
     exit(0);
   }
-  printf("[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n", (long)ls_meta_space);
+  printf("[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
+         (unsigned long)ls_meta_space);
   ls_cur_meta_pos = ls_meta_space;
 #endif
 }
@@ -135,7 +137,7 @@ __attribute__((section(".preinit_array"),
    dest - store destination */
 void ls_inc_refcnt(char *p, char *dest) {
   ls_obj_info *info;
-  long offset, widx, bidx;
+  unsigned long offset, widx, bidx;
 
   if (!p)
     return;
@@ -150,7 +152,7 @@ void ls_inc_refcnt(char *p, char *dest) {
   }
 
   /* mark pointer type field */
-  offset = (long)dest >> 3;
+  offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
   bidx = offset & 0x3F; /* bit index */
   global_ptrlog[widx] |= (1UL << bidx);
@@ -181,13 +183,13 @@ void ls_dec_refcnt(char *p, char *dummy) {
   }
 }
 
-void ls_clear_ptrlog(char *p, long size) {
+void ls_clear_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
-  long offset = (long)p >> 3, offset_e = (long)end >> 3;
-  long widx = offset >> 6, widx_e = offset_e >> 6;
-  long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
-  long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
+  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
 
   if (widx == widx_e) {
     mask |= mask_e;
@@ -201,31 +203,31 @@ void ls_clear_ptrlog(char *p, long size) {
   *pl &= mask_e;
 }
 
-void ls_copy_ptrlog(char *d, char *s, long size) {
+void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
   char *end = d + size, *s_end = s + size;
-  long offset = (long)d >> 3, offset_e = (long)end >> 3;
-  long s_offset = (long)s >> 3, s_offset_e = (long)s_end >> 3;
-  long widx = offset >> 6, widx_e = offset_e >> 6;
-  long s_widx = s_offset >> 6;
-  long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  long s_bidx = s_offset & 0x3F, s_bidx_e = s_offset_e & 0x3F;
-  long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
-  long *s_pl = global_ptrlog + s_widx;
-  long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
-  long s_mask = ((1UL << s_bidx) - 1), s_mask_e = (-1L << s_bidx_e);
-  long pl_val, s_pl_val;
+  unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long s_widx = s_offset >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long s_bidx = s_offset & 0x3F, s_bidx_e = s_offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long *s_pl = global_ptrlog + s_widx;
+  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
+  unsigned long s_mask = ((1UL << s_bidx) - 1), s_mask_e = (-1L << s_bidx_e);
+  unsigned long pl_val, s_pl_val;
 
-  long bitcnts = size >> 3;
+  unsigned long bitcnts = size >> 3;
 
   /* TODO: do this more efficiently */
   /* TODO: distinguish memcpy from memmove */
   /* TODO: can we skip if size is not multiple of 8? */
 
-  long cur = bidx;
-  long s_cur = s_bidx;
+  unsigned long cur = bidx;
+  unsigned long s_cur = s_bidx;
   while (bitcnts--) {
-    long s_curbit = 1UL << s_cur;
-    long bitset = (*s_pl & s_curbit) ? 1 : 0;
+    unsigned long s_curbit = 1UL << s_cur;
+    unsigned long bitset = (*s_pl & s_curbit) ? 1 : 0;
     *pl = (*pl & ~(bitset << cur)) | (bitset << cur);
     cur = (++cur & 0x3f);
     s_cur = (++s_cur & 0x3f);
@@ -234,20 +236,20 @@ void ls_copy_ptrlog(char *d, char *s, long size) {
   }
 }
 
-static void inc_or_dec_ptrlog(char *p, long size, void (*f)(char *, char *)) {
+static void inc_or_dec_ptrlog(char *p, unsigned long size, void (*f)(char *, char *)) {
   char *end = p + size;
-  long offset = (long)p >> 3, offset_e = (long)end >> 3;
-  long widx = offset >> 6, widx_e = offset_e >> 6;
-  long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
-  long mask_e = (-1L << bidx_e);
-  long *pw = (long *)p;
-  long pl_val;
+  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long mask_e = (-1L << bidx_e);
+  unsigned long *pw = (unsigned long *)p;
+  unsigned long pl_val;
 
   if (widx == widx_e) {
     pl_val = (*pl & ~mask_e) >> bidx;
     while (pl_val) {
-      long tmp = __builtin_ctzl(pl_val);
+      unsigned long tmp = __builtin_ctzl(pl_val);
       f((char*)*(pw+tmp), 0);
       pl_val &= (pl_val - 1);
     }
@@ -256,7 +258,7 @@ static void inc_or_dec_ptrlog(char *p, long size, void (*f)(char *, char *)) {
 
   pl_val = *pl >> bidx;
   while (pl_val) {
-    long tmp = __builtin_ctzl(pl_val);
+    unsigned long tmp = __builtin_ctzl(pl_val);
     f((char*)*(pw+tmp), 0);
     pl_val &= (pl_val - 1);
   }
@@ -265,7 +267,7 @@ static void inc_or_dec_ptrlog(char *p, long size, void (*f)(char *, char *)) {
   while (pl < pl_e) {
     pl_val = *pl;
     while (pl_val) {
-      long tmp = __builtin_ctzl(pl_val);
+      unsigned long tmp = __builtin_ctzl(pl_val);
       f((char*)*(pw + tmp), 0);
       pl_val &= (pl_val - 1);
     }
@@ -274,17 +276,17 @@ static void inc_or_dec_ptrlog(char *p, long size, void (*f)(char *, char *)) {
 
   pl_val = *pl & ~mask_e;
   while (pl_val) {
-    long tmp = __builtin_ctzl(pl_val);
+    unsigned long tmp = __builtin_ctzl(pl_val);
     f((char*)*(pw + tmp), 0);
     pl_val &= (pl_val - 1);
   }
 }
 
-void ls_inc_ptrlog(char *p, long size) {
+void ls_inc_ptrlog(char *p, unsigned long size) {
   inc_or_dec_ptrlog(p, size, ls_inc_refcnt);
 }
 
-void ls_dec_ptrlog(char *p, long size) {
+void ls_dec_ptrlog(char *p, unsigned long size) {
   inc_or_dec_ptrlog(p, size, ls_dec_refcnt);
 }
 
@@ -292,13 +294,13 @@ void ls_dec_ptrlog(char *p, long size) {
 /**  Wrappers  ******/
 /********************/
 
-static ls_obj_info *alloc_common(char *base, long size) {
+static ls_obj_info *alloc_common(char *base, unsigned long size) {
   if (++alloc_cur > alloc_max)
     alloc_max = alloc_cur;
 
   ++alloc_tot;
   if (quarantine_size > quarantine_max) {
-    long quarantine_mb_tmp;
+    unsigned long quarantine_mb_tmp;
     quarantine_max = quarantine_size;
     quarantine_mb_tmp = quarantine_max/1024/1024;
     if (quarantine_mb_tmp > quarantine_max_mb) {
