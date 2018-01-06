@@ -10,15 +10,15 @@ void __attribute__((constructor)) init_rb_tree() {
 }
 
 int RBTreeCompare(const rb_red_blk_node *a, const rb_red_blk_node *b) {
-  if ((a->base <= b->base)
-      && (b->base <= a->end)) {
-    if ((b->base != b->end)
-        && !((a->end < b->base) || (b->end < a->base)))
+  if ((a->info.base <= b->info.base)
+      && (b->info.base <= a->info.end)) {
+    if ((b->info.base != b->info.end)
+        && !((a->info.end < b->info.base) || (b->info.end < a->info.base)))
       printf("[interposer] existing entry with overlaping region!\n");
     return 0;
   }
-  if( a->base > b->base) return(1);
-  if( a->base < b->base) return(-1);
+  if( a->info.base > b->info.base) return(1);
+  if( a->info.base < b->info.base) return(-1);
   return(0);
 }
 
@@ -142,17 +142,18 @@ void TreeInsertHelp(rb_red_blk_tree* tree, rb_red_blk_node* z) {
 #endif
 }
 
-rb_red_blk_node * RBTreeInsert(rb_red_blk_tree* tree, char* base, long size) {
+rb_red_blk_node * RBTreeInsert(rb_red_blk_tree* tree, char* base,
+                               unsigned long size) {
   rb_red_blk_node * y;
   rb_red_blk_node * x;
   rb_red_blk_node * newNode;
 
   x=(rb_red_blk_node*) malloc(sizeof(rb_red_blk_node));
-  x->base=base;
-  x->end=base+size;
-  x->size=size;
-  x->refcnt=REFCNT_INIT;
-  x->flags=0;
+  x->info.base=base;
+  x->info.end=base+size;
+  x->info.size=size;
+  x->info.refcnt=REFCNT_INIT;
+  x->info.flags=0;
 
   TreeInsertHelp(tree,x);
   newNode=x;
@@ -227,9 +228,10 @@ void InorderTreePrint(rb_red_blk_tree* tree, rb_red_blk_node* x, int depth) {
     int i = depth;
     InorderTreePrint(tree,x->left,depth+1);
     while (i--) printf(" ");
-    printf("[0x%lx, 0x%lx]", (long)x->base, (long)x->end);
+    printf("[0x%lx, 0x%lx]", (long)x->info.base, (long)x->info.end);
     printf("(0x%lx, %ld)#%d%s\n",
-           x->size, x->size, x->refcnt, (x->flags & RB_INFO_FREED) ? "F" : "");
+           x->info.size, x->info.size, x->info.refcnt,
+           (x->info.flags & LS_INFO_FREED) ? "F" : "");
     InorderTreePrint(tree,x->right,depth+1);
   }
 }
@@ -259,7 +261,7 @@ rb_red_blk_node* RBExactQuery(rb_red_blk_tree* tree, char* p) {
   rb_red_blk_node* nil=tree->nil;
   rb_red_blk_node tmp = {0};
   int compVal;
-  tmp.base = tmp.end = p;
+  tmp.info.base = tmp.info.end = p;
   if (x == nil) return(0);
   compVal=RBTreeCompare(x,&tmp);
   while(0 != compVal) {/*assignemnt*/

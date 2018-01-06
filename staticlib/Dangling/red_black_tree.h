@@ -1,21 +1,14 @@
-#ifdef DMALLOC
-#include <dmalloc.h>
-#endif
+#ifndef RED_BLACK_TREE_H
+#define RED_BLACK_TREE_H
+
+#include "lsan_common.h"
 
 /* comment out the line below to remove all the debugging assertion */
 /* checks from the compiled code.  */
 /* #define DEBUG_ASSERT 1 */
 
-#define REFCNT_INIT 0
-
-#define RB_INFO_FREED 		0x1
-#define RB_INFO_RCBELOWZERO 	0x10000
-
 typedef struct rb_red_blk_node {
-  char *base, *end;
-  long size;
-  int refcnt;
-  int flags;
+  ls_obj_info info;
   int red; /* if red=0 then the node is black */
   struct rb_red_blk_node* left;
   struct rb_red_blk_node* right;
@@ -35,8 +28,10 @@ typedef struct rb_red_blk_tree {
 } rb_red_blk_tree;
 
 rb_red_blk_tree* RBTreeCreate();
-rb_red_blk_node * RBTreeInsert(rb_red_blk_tree*, char*, long);
+rb_red_blk_node * RBTreeInsert(rb_red_blk_tree*, char*, unsigned long);
 void RBTreePrint(rb_red_blk_tree*);
 void RBDelete(rb_red_blk_tree* , rb_red_blk_node* );
 void RBTreeDestroy(rb_red_blk_tree*);
 rb_red_blk_node* RBExactQuery(rb_red_blk_tree*, char*);
+
+#endif

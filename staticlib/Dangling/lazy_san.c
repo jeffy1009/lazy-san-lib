@@ -5,10 +5,77 @@
 #include <assert.h>
 #include <sys/mman.h>
 #include <errno.h>
-#include "red_black_tree.h"
+#include "lsan_common.h"
 
-long *global_ptrlog;
+//#define USE_RBTREE
+#ifdef USE_RBTREE
+#include "red_black_tree.h"
+#endif
+
+static unsigned long *global_ptrlog;
+
+#ifdef USE_RBTREE
+
 extern rb_red_blk_tree *rb_root;
+
+static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
+  return RBTreeInsert(rb_root, base, size);
+}
+
+static ls_obj_info *get_obj_info(char *p) {
+  rb_red_blk_node *n = RBExactQuery(rb_root, p);
+  if (n)
+    return &n->info;
+  return NULL;
+}
+
+static void delete_obj_info(ls_obj_info *info) {
+  RBDelete(rb_root, RBExactQuery(rb_root, info->base));
+}
+
+#else
+
+#define LS_META_SPACE_MAX_SIZE 0x02000000 /* 32MB */
+
+static struct ls_obj_info *ls_meta_space;
+static struct ls_obj_info *ls_cur_meta_pos;
+static unsigned long meta_space_size_mask = (1UL<<12)-1; /* initially 4KB */
+static unsigned long num_obj_info = 0;
+
+static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
+  ls_obj_info *cur = ls_cur_meta_pos;
+  while (cur->base != 0)
+    cur = ((unsigned long)++cur) & meta_space_size_mask;
+  metaset_8(base, size, cur);
+  ls_cur_meta_pos = cur;
+  ++num_obj_info;
+  /* keep meta space large enough to have sufficient vacant slots */
+  if ((num_obj_info*2*sizeof(num_obj_info)) & ~meta_space_size_mask) {
+    if (num_obj_info*2*sizeof(num_obj_info) > LS_META_SPACE_MAX_SIZE)
+      printf("[lazy-san] num obj info reached the limit!\n");
+    meta_space_size_mask <<= 1;
+    meta_space_size_mask |= (meta_space_size_mask-1);
+  }
+  cur->base = base;
+  cur->end = base+size;
+  cur->size = size;
+  cur->refcnt = REFCNT_INIT;
+  cur->flags = 0;
+  return cur;
+}
+
+static ls_obj_info *get_obj_info(char *p) {
+  if (p > 0x550000 && p < 0x10000000)
+    return (ls_obj_info*)metaget_8(p);
+  return NULL;
+}
+
+static void delete_obj_info(ls_obj_info *info) {
+  info->base = 0;
+  metaset_8(info->base, tc_malloc_size(info->base), 0);
+}
+
+#endif
 
 long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
 long num_ptrs = 0;
@@ -41,6 +108,20 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
     exit(0);
   }
   printf("[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n", (long)global_ptrlog);
+
+#ifndef USE_RBTREE
+  ls_meta_space = mmap((void*)0x00007dff8000, LS_META_SPACE_MAX_SIZE,
+                       PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
+                       -1, 0);
+  if (ls_meta_space == (void*)-1) {
+     /* strangely, perror() segfaults */
+    printf("[lazy-san] ls_meta_space mmap failed: errno %d\n", errno);
+    exit(0);
+  }
+  printf("[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n", (long)ls_meta_space);
+  ls_cur_meta_pos = ls_meta_space;
+#endif
 }
 
 __attribute__((section(".preinit_array"),
@@ -53,18 +134,19 @@ __attribute__((section(".preinit_array"),
 /* p - written pointer value
    dest - store destination */
 void ls_inc_refcnt(char *p, char *dest) {
-  rb_red_blk_node *n;
+  ls_obj_info *info;
   long offset, widx, bidx;
 
   if (!p)
     return;
 
   num_ptrs++;
-  n = RBExactQuery(rb_root, p);
-  if (n) {
-    if ((n->flags & RB_INFO_FREED) && n->refcnt == REFCNT_INIT)
+  info = get_obj_info(p);
+
+  if (info) {
+    if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
       printf("[lazy-san] refcnt became alive again??\n");
-    ++n->refcnt;
+    ++info->refcnt;
   }
 
   /* mark pointer type field */
@@ -75,25 +157,25 @@ void ls_inc_refcnt(char *p, char *dest) {
 }
 
 void ls_dec_refcnt(char *p, char *dummy) {
-  rb_red_blk_node *n;
+  ls_obj_info *info;
 
   if (!p)
     return;
 
-  n = RBExactQuery(rb_root, p);
-  if (n) { /* is heap node */
-    if (n->refcnt<=REFCNT_INIT && !(n->flags & RB_INFO_RCBELOWZERO)) {
-      n->flags |= RB_INFO_RCBELOWZERO;
+  info = get_obj_info(p);
+  if (info) { /* is heap node */
+    if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
+      info->flags |= LS_INFO_RCBELOWZERO;
       /* printf("[lazy-san] refcnt <= 0???\n"); */
     }
-    --n->refcnt;
-    if (n->refcnt<=0) {
-      if (n->flags & RB_INFO_FREED) { /* marked to be freed */
-        quarantine_size -= n->size;
-        free(n->base);
-        RBDelete(rb_root, n);
+    --info->refcnt;
+    if (info->refcnt<=0) {
+      if (info->flags & LS_INFO_FREED) { /* marked to be freed */
+        quarantine_size -= info->size;
+        free(info->base);
+        delete_obj_info(info);
       }
-      /* if n is not yet freed, the pointer is probably in some
+      /* if not yet freed, the pointer is probably in some
          register. */
     }
   }
@@ -210,7 +292,7 @@ void ls_dec_ptrlog(char *p, long size) {
 /**  Wrappers  ******/
 /********************/
 
-static rb_red_blk_node *alloc_common(char *base, long size) {
+static ls_obj_info *alloc_common(char *base, long size) {
   if (++alloc_cur > alloc_max)
     alloc_max = alloc_cur;
 
@@ -228,21 +310,21 @@ static rb_red_blk_node *alloc_common(char *base, long size) {
   memset(base, 0, size);
   ls_clear_ptrlog(base, size);
 
-  return RBTreeInsert(rb_root, base, size);
+  return alloc_obj_info(base, size);
 }
 
-static void free_common(char *base, rb_red_blk_node *n) {
+static void free_common(char *base, ls_obj_info *info) {
   --alloc_cur;
 
-  if (n->flags & RB_INFO_FREED)
+  if (info->flags & LS_INFO_FREED)
     printf("[lazy-san] double free??????\n");
 
-  if (n->refcnt <= 0) {
+  if (info->refcnt <= 0) {
     free(base);
-    RBDelete(rb_root, n);
+    delete_obj_info(info);
   } else {
-    n->flags |= RB_INFO_FREED;
-    quarantine_size += n->size;
+    info->flags |= LS_INFO_FREED;
+    quarantine_size += info->size;
   }
 }
 
@@ -264,17 +346,17 @@ void *calloc_wrap(size_t num, size_t size) {
 
 void *realloc_wrap(void *ptr, size_t size) {
   char *p = (char*)ptr;
-  rb_red_blk_node *orig_n, *new_n;
+  ls_obj_info *info, *newinfo;
   char *ret;
 
   if (p==NULL)
     return malloc(size);
 
-  orig_n = RBExactQuery(rb_root, p);
+  info = get_obj_info(p);
 
-  if (orig_n->base != p)
+  if (info->base != p)
     printf("[lazy-san] ptr != base in realloc ??????\n");
-  if ((p+size) <= orig_n->end)
+  if ((p+size) <= info->end)
     return p;
 
   /* just malloc */
@@ -282,25 +364,25 @@ void *realloc_wrap(void *ptr, size_t size) {
   if (!ret)
     printf("[lazy-san] malloc failed ??????\n");
 
-  new_n = alloc_common(ret, size);
+  newinfo = alloc_common(ret, size);
 
-  memcpy(ret, p, orig_n->size);
+  memcpy(ret, p, info->size);
 
-  ls_copy_ptrlog(new_n->base, orig_n->base, orig_n->size);
+  ls_copy_ptrlog(newinfo->base, info->base, info->size);
 
-  free_common(p, orig_n);
+  free_common(p, info);
 
   return(ret);
 }
 
 void free_wrap(void *ptr) {
-  rb_red_blk_node *n;
+  ls_obj_info *info;
 
   if (ptr==NULL)
     return;
 
-  n = RBExactQuery(rb_root, ptr);
-  if (!n) {
+  info = get_obj_info(ptr);
+  if (!info) {
     /* there are no dangling pointers to this node,
        so the node is already removed from the rangetree */
     /* NOTE: there can be a dangling pointer in the register
@@ -310,6 +392,6 @@ void free_wrap(void *ptr) {
     return;
   }
 
-  ls_dec_ptrlog(ptr, n->size);
-  free_common(ptr, n);
+  ls_dec_ptrlog(ptr, info->size);
+  free_common(ptr, info);
 }
