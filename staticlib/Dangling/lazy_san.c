@@ -10,6 +10,8 @@
 //#define USE_RBTREE
 #ifdef USE_RBTREE
 #include "red_black_tree.h"
+#else
+#include "metadata.h"
 #endif
 
 static unsigned long *global_ptrlog;
@@ -19,7 +21,7 @@ static unsigned long *global_ptrlog;
 extern rb_red_blk_tree *rb_root;
 
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
-  return RBTreeInsert(rb_root, base, size);
+  return &RBTreeInsert(rb_root, base, size)->info;
 }
 
 static ls_obj_info *get_obj_info(char *p) {
@@ -37,24 +39,25 @@ static void delete_obj_info(ls_obj_info *info) {
 
 #define LS_META_SPACE_MAX_SIZE 0x02000000 /* 32MB */
 
-static struct ls_obj_info *ls_meta_space;
-static struct ls_obj_info *ls_cur_meta_pos;
-static unsigned long meta_space_size_mask = (1UL<<12)-1; /* initially 4KB */
+static ls_obj_info *ls_meta_space;
+static unsigned long cur_meta_idx = 0;
+static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
 static unsigned long num_obj_info = 0;
 
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
-  ls_obj_info *cur = ls_cur_meta_pos;
-  while (cur->base != 0)
-    cur = ((unsigned long)++cur) & meta_space_size_mask;
+  ls_obj_info *cur;
+  do {
+    cur = ls_meta_space + cur_meta_idx;
+    if (++cur_meta_idx >= meta_idx_limit) cur_meta_idx = 0;
+  } while (cur->base != 0);
+
   metaset_8(base, size, cur);
-  ls_cur_meta_pos = cur;
   ++num_obj_info;
   /* keep meta space large enough to have sufficient vacant slots */
-  if ((num_obj_info*2*sizeof(num_obj_info)) & ~meta_space_size_mask) {
+  if (num_obj_info*2 > meta_idx_limit) {
     if (num_obj_info*2*sizeof(num_obj_info) > LS_META_SPACE_MAX_SIZE)
       printf("[lazy-san] num obj info reached the limit!\n");
-    meta_space_size_mask <<= 1;
-    meta_space_size_mask |= (meta_space_size_mask-1);
+    meta_idx_limit *= 2;
   }
   cur->base = base;
   cur->end = base+size;
@@ -122,7 +125,6 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   }
   printf("[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space);
-  ls_cur_meta_pos = ls_meta_space;
 #endif
 }
 
