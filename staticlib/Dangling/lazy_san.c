@@ -39,6 +39,8 @@ static void delete_obj_info(ls_obj_info *info) {
 
 #define LS_META_SPACE_MAX_SIZE 0x02000000 /* 32MB */
 
+__attribute__ ((visibility("hidden"))) extern char _end;
+
 static ls_obj_info *ls_meta_space;
 static unsigned long cur_meta_idx = 0;
 static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
@@ -55,7 +57,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   ++num_obj_info;
   /* keep meta space large enough to have sufficient vacant slots */
   if (num_obj_info*2 > meta_idx_limit) {
-    if (num_obj_info*2*sizeof(num_obj_info) > LS_META_SPACE_MAX_SIZE)
+    if (num_obj_info*2*sizeof(ls_obj_info) > LS_META_SPACE_MAX_SIZE)
       printf("[lazy-san] num obj info reached the limit!\n");
     meta_idx_limit *= 2;
   }
@@ -68,14 +70,14 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
 }
 
 static ls_obj_info *get_obj_info(char *p) {
-  if (p > 0x550000 && p < 0x10000000)
+  if (p > &_end && p < (char*)0x7dff8000)
     return (ls_obj_info*)metaget_8((unsigned long)p);
   return NULL;
 }
 
 static void delete_obj_info(ls_obj_info *info) {
-  info->base = 0;
   metaset_8((unsigned long)info->base, tc_malloc_size(info->base), 0);
+  info->base = 0;
 }
 
 #endif
@@ -176,8 +178,8 @@ void ls_dec_refcnt(char *p, char *dummy) {
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
         quarantine_size -= info->size;
-        free(info->base);
         delete_obj_info(info);
+        free(info->base);
       }
       /* if not yet freed, the pointer is probably in some
          register. */
@@ -324,8 +326,8 @@ static void free_common(char *base, ls_obj_info *info) {
     printf("[lazy-san] double free??????\n");
 
   if (info->refcnt <= 0) {
-    free(base);
     delete_obj_info(info);
+    free(base);
   } else {
     info->flags |= LS_INFO_FREED;
     quarantine_size += info->size;
