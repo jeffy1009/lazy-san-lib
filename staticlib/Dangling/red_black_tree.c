@@ -259,7 +259,7 @@ void RBTreePrint(rb_red_blk_tree* tree) {
 rb_red_blk_node* RBExactQuery(rb_red_blk_tree* tree, char* p) {
   rb_red_blk_node* x=tree->root->left;
   rb_red_blk_node* nil=tree->nil;
-  rb_red_blk_node tmp = {0};
+  rb_red_blk_node tmp;
   int compVal;
   tmp.info.base = tmp.info.end = p;
   if (x == nil) return(0);

@@ -51,7 +51,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
     if (++cur_meta_idx >= meta_idx_limit) cur_meta_idx = 0;
   } while (cur->base != 0);
 
-  metaset_8(base, size, cur);
+  metaset_8((unsigned long)base, size, (unsigned long)cur);
   ++num_obj_info;
   /* keep meta space large enough to have sufficient vacant slots */
   if (num_obj_info*2 > meta_idx_limit) {
@@ -69,13 +69,13 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
 
 static ls_obj_info *get_obj_info(char *p) {
   if (p > 0x550000 && p < 0x10000000)
-    return (ls_obj_info*)metaget_8(p);
+    return (ls_obj_info*)metaget_8((unsigned long)p);
   return NULL;
 }
 
 static void delete_obj_info(ls_obj_info *info) {
   info->base = 0;
-  metaset_8(info->base, tc_malloc_size(info->base), 0);
+  metaset_8((unsigned long)info->base, tc_malloc_size(info->base), 0);
 }
 
 #endif
