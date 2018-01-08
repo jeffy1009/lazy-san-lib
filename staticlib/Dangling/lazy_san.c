@@ -14,6 +14,10 @@
 #include "metadata.h"
 #endif
 
+#define GLOBAL_PTRLOG_BASE 0x000400000000
+#define GLOBAL_PTRLOG_SIZE 0x020000000000  /* 2TB */
+#define GLOBAL_PTRLOG_END (GLOBAL_PTRLOG_BASE+GLOBAL_PTRLOG_SIZE)
+
 static unsigned long *global_ptrlog;
 
 #ifdef USE_RBTREE
@@ -37,7 +41,7 @@ static void delete_obj_info(ls_obj_info *info) {
 
 #else /* !USE_RBTREE */
 
-#define LS_META_SPACE_MAX_SIZE 0x02000000 /* 32MB */
+#define LS_META_SPACE_MAX_SIZE 0x08000000 /* 128MB */
 
 __attribute__ ((visibility("hidden"))) extern char _end;
 
@@ -45,6 +49,7 @@ static ls_obj_info *ls_meta_space;
 static unsigned long cur_meta_idx = 0;
 static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
 static unsigned long num_obj_info = 0;
+static const unsigned long meta_idx_max = LS_META_SPACE_MAX_SIZE/sizeof(ls_obj_info);
 
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   ls_obj_info *cur;
@@ -56,8 +61,8 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   metaset_8((unsigned long)base, size, (unsigned long)cur);
   ++num_obj_info;
   /* keep meta space large enough to have sufficient vacant slots */
-  if (num_obj_info*2 > meta_idx_limit) {
-    if (num_obj_info*2*sizeof(ls_obj_info) > LS_META_SPACE_MAX_SIZE)
+  if ((num_obj_info+num_obj_info/4) > meta_idx_limit) {
+    if ((num_obj_info+num_obj_info/4) > meta_idx_max)
       printf("[lazy-san] num obj info reached the limit!\n");
     meta_idx_limit *= 2;
   }
@@ -69,7 +74,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
 }
 
 static ls_obj_info *get_obj_info(char *p) {
-  if (p > &_end && p < (char*)0x7dff8000)
+  if (p > &_end && p < (char*)GLOBAL_PTRLOG_BASE)
     return (ls_obj_info*)metaget_8((unsigned long)p);
   return NULL;
 }
@@ -77,6 +82,7 @@ static ls_obj_info *get_obj_info(char *p) {
 static void delete_obj_info(ls_obj_info *info) {
   metaset_8((unsigned long)info->base, tc_malloc_size(info->base), 0);
   info->base = 0;
+  --num_obj_info;
 }
 
 #endif
@@ -102,7 +108,7 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   if (atexit(atexit_hook))
     printf("atexit failed!\n");
 
-  global_ptrlog = mmap((void*)0x00007fff8000, 0x020000000000 /* 2TB */,
+  global_ptrlog = mmap((void*)GLOBAL_PTRLOG_BASE, GLOBAL_PTRLOG_SIZE,
                        PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
                        -1, 0);
@@ -115,7 +121,7 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
          (unsigned long)global_ptrlog);
 
 #ifndef USE_RBTREE
-  ls_meta_space = mmap((void*)0x00007dff8000, LS_META_SPACE_MAX_SIZE,
+  ls_meta_space = mmap((void*)GLOBAL_PTRLOG_END, LS_META_SPACE_MAX_SIZE,
                        PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
                        -1, 0);
