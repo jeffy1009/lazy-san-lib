@@ -11,9 +11,10 @@ void __attribute__((constructor)) init_rb_tree() {
 
 int RBTreeCompare(const rb_red_blk_node *a, const rb_red_blk_node *b) {
   if ((a->info.base <= b->info.base)
-      && (b->info.base <= a->info.end)) {
-    if ((b->info.base != b->info.end)
-        && !((a->info.end < b->info.base) || (b->info.end < a->info.base)))
+      && (b->info.base <= (a->info.base + a->info.size))) {
+    if ((b->info.size != 0)
+        && !(((a->info.base + a->info.size) < b->info.base)
+             || ((b->info.base + b->info.size) < a->info.base)))
       printf("[interposer] existing entry with overlaping region!\n");
     return 0;
   }
@@ -150,7 +151,6 @@ rb_red_blk_node * RBTreeInsert(rb_red_blk_tree* tree, char* base,
 
   x=(rb_red_blk_node*) malloc(sizeof(rb_red_blk_node));
   x->info.base=base;
-  x->info.end=base+size;
   x->info.size=size;
   x->info.refcnt=REFCNT_INIT;
   x->info.flags=0;
@@ -228,7 +228,7 @@ void InorderTreePrint(rb_red_blk_tree* tree, rb_red_blk_node* x, int depth) {
     int i = depth;
     InorderTreePrint(tree,x->left,depth+1);
     while (i--) printf(" ");
-    printf("[0x%lx, 0x%lx]", (long)x->info.base, (long)x->info.end);
+    printf("[0x%lx, 0x%lx]", (long)x->info.base, (long)(x->info.base + x->info.size));
     printf("(0x%lx, %ld)#%d%s\n",
            x->info.size, x->info.size, x->info.refcnt,
            (x->info.flags & LS_INFO_FREED) ? "F" : "");
@@ -261,7 +261,8 @@ rb_red_blk_node* RBExactQuery(rb_red_blk_tree* tree, char* p) {
   rb_red_blk_node* nil=tree->nil;
   rb_red_blk_node tmp;
   int compVal;
-  tmp.info.base = tmp.info.end = p;
+  tmp.info.base = p;
+  tmp.info.size = 0;
   if (x == nil) return(0);
   compVal=RBTreeCompare(x,&tmp);
   while(0 != compVal) {/*assignemnt*/

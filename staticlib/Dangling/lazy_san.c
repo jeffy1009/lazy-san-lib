@@ -62,7 +62,6 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
     meta_idx_limit *= 2;
   }
   cur->base = base;
-  cur->end = base+size;
   cur->size = size;
   cur->refcnt = REFCNT_INIT;
   cur->flags = 0;
@@ -362,7 +361,7 @@ void *realloc_wrap(void *ptr, size_t size) {
 
   if (info->base != p)
     printf("[lazy-san] ptr != base in realloc ??????\n");
-  if ((p+size) <= info->end)
+  if ((p+size) <= (p+info->size))
     return p;
 
   /* just malloc */

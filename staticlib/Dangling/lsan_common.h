@@ -7,7 +7,7 @@
 #define LS_INFO_RCBELOWZERO 	0x10000
 
 typedef struct ls_obj_info_t {
-  char *base, *end;
+  char *base;
   unsigned long size;
   int refcnt;
   int flags;
