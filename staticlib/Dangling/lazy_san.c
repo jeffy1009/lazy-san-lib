@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include "lsan_common.h"
+#include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
 
 //#define USE_RBTREE
 #ifdef USE_RBTREE
@@ -108,10 +109,12 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   if (atexit(atexit_hook))
     printf("atexit failed!\n");
 
-  global_ptrlog = mmap((void*)GLOBAL_PTRLOG_BASE, GLOBAL_PTRLOG_SIZE,
-                       PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
-                       -1, 0);
+  /* sys_mmap from gperftools/src/base/linux_syscall_support.h
+     gives much better performance and memory usage */
+  global_ptrlog = sys_mmap((void*)GLOBAL_PTRLOG_BASE, GLOBAL_PTRLOG_SIZE,
+                           PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
+                           -1, 0);
   if (global_ptrlog == (void*)-1) {
      /* strangely, perror() segfaults */
     printf("[lazy-san] global_ptrlog mmap failed: errno %d\n", errno);
@@ -121,10 +124,10 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
          (unsigned long)global_ptrlog);
 
 #ifndef USE_RBTREE
-  ls_meta_space = mmap((void*)GLOBAL_PTRLOG_END, LS_META_SPACE_MAX_SIZE,
-                       PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
-                       -1, 0);
+  ls_meta_space = sys_mmap((void*)GLOBAL_PTRLOG_END, LS_META_SPACE_MAX_SIZE,
+                           PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
+                           -1, 0);
   if (ls_meta_space == (void*)-1) {
      /* strangely, perror() segfaults */
     printf("[lazy-san] ls_meta_space mmap failed: errno %d\n", errno);
