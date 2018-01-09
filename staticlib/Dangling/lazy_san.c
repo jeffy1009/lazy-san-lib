@@ -182,9 +182,10 @@ void ls_dec_refcnt(char *p, char *dummy) {
     --info->refcnt;
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
+        char *tmp = info->base;
         quarantine_size -= info->size;
         delete_obj_info(info);
-        free(info->base);
+        free(tmp);
       }
       /* if not yet freed, the pointer is probably in some
          register. */
