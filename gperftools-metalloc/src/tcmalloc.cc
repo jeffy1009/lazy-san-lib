@@ -1514,7 +1514,7 @@ ALWAYS_INLINE void* do_realloc_with_callback(
     // We could use a variant of do_free() that leverages the fact
     // that we already know the sizeclass of old_ptr.  The benefit
     // would be small, so don't bother.
-    do_free_with_callback(old_ptr, invalid_free_fn);
+    // do_free_with_callback(old_ptr, invalid_free_fn);
     return new_ptr;
   } else {
 #ifdef METALLOC_RESIZE_HOOK
@@ -1787,7 +1787,7 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_realloc(void* old_ptr,
   }
   if (new_size == 0) {
     MallocHook::InvokeDeleteHook(old_ptr);
-    do_free(old_ptr);
+    // do_free(old_ptr);
     return NULL;
   }
   return do_realloc(old_ptr, new_size);

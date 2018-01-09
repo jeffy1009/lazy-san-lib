@@ -319,7 +319,6 @@ static ls_obj_info *alloc_common(char *base, unsigned long size) {
     }
   }
 
-  memset(base, 0, size);
   ls_clear_ptrlog(base, size);
 
   return alloc_obj_info(base, size);
@@ -344,6 +343,7 @@ void *malloc_wrap(size_t size) {
   char *ret = malloc(size);
   if (!ret)
     printf("[lazy-san] malloc failed ??????\n");
+  memset(ret, 0, size);
   alloc_common(ret, size);
   return(ret);
 }
@@ -352,6 +352,7 @@ void *calloc_wrap(size_t num, size_t size) {
   char *ret = calloc(num, size);
   if (!ret)
     printf("[lazy-san] calloc failed ??????\n");
+  memset(ret, 0, num*size);
   alloc_common(ret, num*size);
   return(ret);
 }
@@ -366,23 +367,13 @@ void *realloc_wrap(void *ptr, size_t size) {
 
   info = get_obj_info(p);
 
-  if (info->base != p)
-    printf("[lazy-san] ptr != base in realloc ??????\n");
-  if ((p+size) <= (p+info->size))
-    return p;
-
-  /* just malloc */
-  ret = malloc(size);
-  if (!ret)
-    printf("[lazy-san] malloc failed ??????\n");
-
-  newinfo = alloc_common(ret, size);
-
-  memcpy(ret, p, info->size);
-
-  ls_copy_ptrlog(newinfo->base, info->base, info->size);
-
-  free_common(p, info);
+  /* NOTE: realloc should be modified not to free old ptr */
+  ret = realloc(ptr, size);
+  if (ret != ptr) {
+    newinfo = alloc_common(ret, size);
+    ls_copy_ptrlog(ret, ptr, info->size);
+    free_common(p, info);
+  }
 
   return(ret);
 }
