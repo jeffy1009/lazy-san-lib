@@ -402,7 +402,6 @@ void *malloc_wrap(size_t size) {
   char *ret = malloc(size);
   if (!ret)
     printf("[lazy-san] malloc failed ??????\n");
-  memset(ret, 0, size);
   alloc_common(ret, size);
   return(ret);
 }
@@ -411,7 +410,6 @@ void *calloc_wrap(size_t num, size_t size) {
   char *ret = calloc(num, size);
   if (!ret)
     printf("[lazy-san] calloc failed ??????\n");
-  memset(ret, 0, num*size);
   alloc_common(ret, num*size);
   return(ret);
 }
