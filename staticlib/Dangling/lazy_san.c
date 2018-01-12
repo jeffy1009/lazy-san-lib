@@ -196,6 +196,62 @@ void ls_dec_refcnt(char *p, char *dummy) {
   }
 }
 
+// NOTE: we should increase refcnt before decreasing it..
+// if it is decreased first, refcnt could become 0 and the quarantine cleared
+// but if the pointer happens to point to the same object, refcnt will become
+// one again..
+void ls_incdec_refcnt(char *p, char *dest) {
+  ls_obj_info *info;
+  unsigned long offset, widx, bidx;
+  unsigned long need_dec;
+  unsigned long tmp_ptrlog_val;
+
+  num_ptrs++;
+
+  offset = (unsigned long)dest >> 3;
+  widx = offset >> 6; /* word index */
+  bidx = offset & 0x3F; /* bit index */
+  tmp_ptrlog_val = global_ptrlog[widx];
+
+  info = get_obj_info(p);
+
+  if (info) {
+#ifdef DEBUG_LS
+    if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
+      printf("[lazy-san] refcnt became alive again??\n");
+#endif
+    ++info->refcnt;
+
+    /* mark pointer type field */
+    global_ptrlog[widx] = tmp_ptrlog_val | (1UL << bidx);
+  }
+
+  need_dec = (tmp_ptrlog_val & (1UL << bidx));
+  if (!need_dec)
+    return;
+
+  info = get_obj_info((char*)(*(unsigned long*)dest));
+  if (info) { /* is heap node */
+#ifdef DEBUG_LS
+    if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
+      info->flags |= LS_INFO_RCBELOWZERO;
+      /* printf("[lazy-san] refcnt <= 0???\n"); */
+    }
+#endif
+    --info->refcnt;
+    if (info->refcnt<=0) {
+      if (info->flags & LS_INFO_FREED) { /* marked to be freed */
+        char *tmp = info->base;
+        quarantine_size -= info->size;
+        delete_obj_info(info);
+        free(tmp);
+      }
+      /* if not yet freed, the pointer is probably in some
+         register. */
+    }
+  }
+}
+
 void ls_clear_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
