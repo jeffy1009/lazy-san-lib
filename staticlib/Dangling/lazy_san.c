@@ -8,11 +8,20 @@
 #include "lsan_common.h"
 #include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
 
-//#define USE_RBTREE
+/* uncomment to use red black tree
+   comment to use metalloc */
+/* #define USE_RBTREE */
+
 #ifdef USE_RBTREE
 #include "red_black_tree.h"
 #else
 #include "metadata.h"
+#endif
+
+#ifdef DEBUG_LS
+#define DEBUG(x) do { x; } while (0)
+#else
+#define DEBUG(x) do { ; } while (0)
 #endif
 
 #define GLOBAL_PTRLOG_BASE 0x408000000000  /* next to metalloc pagetable */
@@ -65,8 +74,8 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   ++num_obj_info;
   /* keep meta space large enough to have sufficient vacant slots */
   if ((num_obj_info+num_obj_info/4) > meta_idx_limit) {
-    if ((num_obj_info+num_obj_info/4) > meta_idx_max)
-      printf("[lazy-san] num obj info reached the limit!\n");
+    DEBUG(if ((num_obj_info+num_obj_info/4) > meta_idx_max)
+            printf("[lazy-san] num obj info reached the limit!\n"));
     meta_idx_limit *= 2;
   }
   cur->base = base;
@@ -90,17 +99,23 @@ static void delete_obj_info(ls_obj_info *info) {
 
 #endif
 
-unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
-unsigned long num_ptrs = 0;
-unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
+#ifdef DEBUG_LS
+static unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
+static unsigned long num_ptrs = 0;
+static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
+static unsigned long num_incdec = 0, same_ldst_cnt = 0;
+#endif
 
+#ifdef DEBUG_LS
 void atexit_hook() {
   printf("PROGRAM TERMINATED!\n");
   printf("max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
          alloc_max, alloc_cur, alloc_tot);
   printf("num ptrs: %ld\n", num_ptrs);
   printf("quarantine max: %ld B, cur: %ld B\n", quarantine_max, quarantine_size);
+  printf("num incdec: %ld, same ldst cnt: %ld\n", num_incdec, same_ldst_cnt);
 }
+#endif
 
 void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   static int initialized = 0;
@@ -108,8 +123,8 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   if (initialized) return;
   initialized = 1;
 
-  if (atexit(atexit_hook))
-    printf("atexit failed!\n");
+  DEBUG(if (atexit(atexit_hook))
+          printf("atexit failed!\n"));
 
   /* sys_mmap from gperftools/src/base/linux_syscall_support.h
      gives much better performance and memory usage */
@@ -153,15 +168,12 @@ void ls_inc_refcnt(char *p, char *dest) {
   ls_obj_info *info;
   unsigned long offset, widx, bidx;
 
-  if (!p)
-    return;
-
-  num_ptrs++;
+  DEBUG(num_ptrs++);
   info = get_obj_info(p);
 
   if (info) {
-    if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
-      printf("[lazy-san] refcnt became alive again??\n");
+    DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
+            printf("[lazy-san] refcnt became alive again??\n"));
     ++info->refcnt;
   }
 
@@ -175,20 +187,17 @@ void ls_inc_refcnt(char *p, char *dest) {
 void ls_dec_refcnt(char *p, char *dummy) {
   ls_obj_info *info;
 
-  if (!p)
-    return;
-
   info = get_obj_info(p);
   if (info) { /* is heap node */
-    if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
-      info->flags |= LS_INFO_RCBELOWZERO;
-      /* printf("[lazy-san] refcnt <= 0???\n"); */
-    }
+    DEBUG(if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
+        info->flags |= LS_INFO_RCBELOWZERO;
+        /* printf("[lazy-san] refcnt <= 0???\n"); */
+      });
     --info->refcnt;
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = info->base;
-        quarantine_size -= info->size;
+        DEBUG(quarantine_size -= info->size);
         delete_obj_info(info);
         free(tmp);
       }
@@ -207,8 +216,10 @@ void ls_incdec_refcnt(char *p, char *dest) {
   unsigned long offset, widx, bidx;
   unsigned long need_dec;
   unsigned long tmp_ptrlog_val;
+  ls_obj_info *tmp_info;
 
-  num_ptrs++;
+  DEBUG(num_ptrs++);
+  DEBUG(num_incdec++);
 
   offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
@@ -218,10 +229,8 @@ void ls_incdec_refcnt(char *p, char *dest) {
   info = get_obj_info(p);
 
   if (info) {
-#ifdef DEBUG_LS
-    if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
-      printf("[lazy-san] refcnt became alive again??\n");
-#endif
+    DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
+            printf("[lazy-san] refcnt became alive again??\n"));
     ++info->refcnt;
 
     /* mark pointer type field */
@@ -232,19 +241,21 @@ void ls_incdec_refcnt(char *p, char *dest) {
   if (!need_dec)
     return;
 
+  DEBUG(tmp_info = info);
   info = get_obj_info((char*)(*(unsigned long*)dest));
+  DEBUG(if (tmp_info==info)
+          same_ldst_cnt++);
   if (info) { /* is heap node */
-#ifdef DEBUG_LS
-    if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
-      info->flags |= LS_INFO_RCBELOWZERO;
-      /* printf("[lazy-san] refcnt <= 0???\n"); */
-    }
-#endif
+    DEBUG(if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
+        info->flags |= LS_INFO_RCBELOWZERO;
+        /* printf("[lazy-san] refcnt <= 0???\n"); */
+      });
+
     --info->refcnt;
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = info->base;
-        quarantine_size -= info->size;
+        DEBUG(quarantine_size -= info->size);
         delete_obj_info(info);
         free(tmp);
       }
@@ -366,6 +377,7 @@ void ls_dec_ptrlog(char *p, unsigned long size) {
 /********************/
 
 static ls_obj_info *alloc_common(char *base, unsigned long size) {
+#ifdef DEBUG_LS
   if (++alloc_cur > alloc_max)
     alloc_max = alloc_cur;
 
@@ -379,6 +391,7 @@ static ls_obj_info *alloc_common(char *base, unsigned long size) {
       printf("[lazy-san] quarantine_max = %ld MB\n", quarantine_max_mb);
     }
   }
+#endif
 
   ls_clear_ptrlog(base, size);
 
@@ -386,32 +399,32 @@ static ls_obj_info *alloc_common(char *base, unsigned long size) {
 }
 
 static void free_common(char *base, ls_obj_info *info) {
-  --alloc_cur;
+  DEBUG(--alloc_cur);
 
-  if (info->flags & LS_INFO_FREED)
-    printf("[lazy-san] double free??????\n");
+  DEBUG(if (info->flags & LS_INFO_FREED)
+          printf("[lazy-san] double free??????\n"));
 
   if (info->refcnt <= 0) {
     delete_obj_info(info);
     free(base);
   } else {
     info->flags |= LS_INFO_FREED;
-    quarantine_size += info->size;
+    DEBUG(quarantine_size += info->size);
   }
 }
 
 void *malloc_wrap(size_t size) {
   char *ret = malloc(size);
-  if (!ret)
-    printf("[lazy-san] malloc failed ??????\n");
+  DEBUG(if (!ret)
+          printf("[lazy-san] malloc failed ??????\n"));
   alloc_common(ret, size);
   return(ret);
 }
 
 void *calloc_wrap(size_t num, size_t size) {
   char *ret = calloc(num, size);
-  if (!ret)
-    printf("[lazy-san] calloc failed ??????\n");
+  DEBUG(if (!ret)
+          printf("[lazy-san] calloc failed ??????\n"));
   alloc_common(ret, num*size);
   return(ret);
 }
@@ -444,16 +457,6 @@ void free_wrap(void *ptr) {
     return;
 
   info = get_obj_info(ptr);
-  if (!info) {
-    /* there are no dangling pointers to this node,
-       so the node is already removed from the rangetree */
-    /* NOTE: there can be a dangling pointer in the register
-       and that register value could later be stored in memory.
-       Should we handle this case?? */
-    free(ptr);
-    return;
-  }
-
   ls_dec_ptrlog(ptr, info->size);
   free_common(ptr, info);
 }
