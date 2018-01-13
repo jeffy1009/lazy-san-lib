@@ -318,6 +318,33 @@ void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
   }
 }
 
+/* Only used for debugging */
+void ls_check_ptrlog(char *p, unsigned long size) {
+  char *end = p + size;
+  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
+  volatile int dummy; /* To make it easier to set breakpoints */
+
+  if (widx == widx_e) {
+    mask |= mask_e;
+    if (*pl & ~mask)
+      dummy = 0;
+    return;
+  }
+
+  if (*pl++ & ~mask)
+    dummy = 0;
+  while (pl < pl_e) {
+    if (*pl++ != 0)
+      dummy = 0;
+  }
+  if (*pl & ~mask_e)
+    dummy = 0;
+}
+
 static void inc_or_dec_ptrlog(char *p, unsigned long size, void (*f)(char *, char *)) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
