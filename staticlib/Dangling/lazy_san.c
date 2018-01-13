@@ -15,9 +15,11 @@
 #include "metadata.h"
 #endif
 
-#define GLOBAL_PTRLOG_BASE 0x000400000000
+#define GLOBAL_PTRLOG_BASE 0x408000000000  /* next to metalloc pagetable */
 #define GLOBAL_PTRLOG_SIZE 0x020000000000  /* 2TB */
 #define GLOBAL_PTRLOG_END (GLOBAL_PTRLOG_BASE+GLOBAL_PTRLOG_SIZE)
+/* TODO: get exact heap end instead of this fixed value */
+#define HEAP_END_ADDR 0x000400000000 /* 16GB */
 
 static unsigned long *global_ptrlog;
 
@@ -75,7 +77,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
 }
 
 static ls_obj_info *get_obj_info(char *p) {
-  if (p > &_end && p < (char*)GLOBAL_PTRLOG_BASE)
+  if (p > &_end && p < (char*)HEAP_END_ADDR)
     return (ls_obj_info*)metaget_8((unsigned long)p);
   return NULL;
 }
