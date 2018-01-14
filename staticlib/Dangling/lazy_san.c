@@ -477,13 +477,16 @@ void *realloc_wrap(void *ptr, size_t size) {
   return(ret);
 }
 
-void free_wrap(void *ptr) {
+void free_wrap(void *ptr, int need_dec) {
   ls_obj_info *info;
 
   if (ptr==NULL)
     return;
 
   info = get_obj_info(ptr);
-  ls_dec_ptrlog(ptr, info->size);
+  if (need_dec)
+    ls_dec_ptrlog(ptr, info->size);
+  else
+    DEBUG(ls_check_ptrlog(ptr, info->size));
   free_common(ptr, info);
 }
