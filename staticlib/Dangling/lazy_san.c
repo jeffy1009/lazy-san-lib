@@ -212,11 +212,10 @@ void ls_dec_refcnt(char *p, char *dummy) {
 // but if the pointer happens to point to the same object, refcnt will become
 // one again..
 void ls_incdec_refcnt(char *p, char *dest) {
-  ls_obj_info *info;
+  ls_obj_info *info, *old_info;
   unsigned long offset, widx, bidx;
   unsigned long need_dec;
   unsigned long tmp_ptrlog_val;
-  ls_obj_info *tmp_info;
 
   DEBUG(num_ptrs++);
   DEBUG(num_incdec++);
@@ -226,7 +225,15 @@ void ls_incdec_refcnt(char *p, char *dest) {
   bidx = offset & 0x3F; /* bit index */
   tmp_ptrlog_val = global_ptrlog[widx];
 
+  need_dec = (tmp_ptrlog_val & (1UL << bidx));
+
   info = get_obj_info(p);
+  if (need_dec) {
+    old_info = get_obj_info((char*)(*(unsigned long*)dest));
+    if (info == old_info)
+      DEBUG(same_ldst_cnt++);
+      return;
+  }
 
   if (info) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
@@ -235,28 +242,25 @@ void ls_incdec_refcnt(char *p, char *dest) {
 
     /* mark pointer type field */
     global_ptrlog[widx] = tmp_ptrlog_val | (1UL << bidx);
+  } else {
+    global_ptrlog[widx] = tmp_ptrlog_val & ~(1UL << bidx);
   }
 
-  need_dec = (tmp_ptrlog_val & (1UL << bidx));
   if (!need_dec)
     return;
 
-  DEBUG(tmp_info = info);
-  info = get_obj_info((char*)(*(unsigned long*)dest));
-  DEBUG(if (tmp_info==info)
-          same_ldst_cnt++);
-  if (info) { /* is heap node */
-    DEBUG(if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
-        info->flags |= LS_INFO_RCBELOWZERO;
+  if (old_info) { /* is heap node */
+    DEBUG(if (old_info->refcnt<=REFCNT_INIT && !(old_info->flags & LS_INFO_RCBELOWZERO)) {
+        old_info->flags |= LS_INFO_RCBELOWZERO;
         /* printf("[lazy-san] refcnt <= 0???\n"); */
       });
 
-    --info->refcnt;
-    if (info->refcnt<=0) {
-      if (info->flags & LS_INFO_FREED) { /* marked to be freed */
-        char *tmp = info->base;
-        DEBUG(quarantine_size -= info->size);
-        delete_obj_info(info);
+    --old_info->refcnt;
+    if (old_info->refcnt<=0) {
+      if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
+        char *tmp = old_info->base;
+        DEBUG(quarantine_size -= old_info->size);
+        delete_obj_info(old_info);
         free(tmp);
       }
       /* if not yet freed, the pointer is probably in some
