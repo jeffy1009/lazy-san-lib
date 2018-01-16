@@ -175,13 +175,13 @@ void ls_inc_refcnt(char *p, char *dest) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
             printf("[lazy-san] refcnt became alive again??\n"));
     ++info->refcnt;
-  }
 
-  /* mark pointer type field */
-  offset = (unsigned long)dest >> 3;
-  widx = offset >> 6; /* word index */
-  bidx = offset & 0x3F; /* bit index */
-  global_ptrlog[widx] |= (1UL << bidx);
+    /* mark pointer type field */
+    offset = (unsigned long)dest >> 3;
+    widx = offset >> 6; /* word index */
+    bidx = offset & 0x3F; /* bit index */
+    global_ptrlog[widx] |= (1UL << bidx);
+  }
 }
 
 void ls_dec_refcnt(char *p, char *dummy) {
@@ -349,7 +349,7 @@ void ls_check_ptrlog(char *p, unsigned long size) {
     dummy = 0;
 }
 
-static void inc_or_dec_ptrlog(char *p, unsigned long size, void (*f)(char *, char *)) {
+void ls_inc_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
@@ -363,7 +363,7 @@ static void inc_or_dec_ptrlog(char *p, unsigned long size, void (*f)(char *, cha
     pl_val = (*pl & ~mask_e) >> bidx;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      f((char*)*(pw+tmp), 0);
+      ls_inc_refcnt((char*)*(pw+tmp), 0);
       pl_val &= (pl_val - 1);
     }
     return;
@@ -372,7 +372,7 @@ static void inc_or_dec_ptrlog(char *p, unsigned long size, void (*f)(char *, cha
   pl_val = *pl >> bidx;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    f((char*)*(pw+tmp), 0);
+    ls_inc_refcnt((char*)*(pw+tmp), 0);
     pl_val &= (pl_val - 1);
   }
   pl++, pw+=(64-bidx);
@@ -381,7 +381,7 @@ static void inc_or_dec_ptrlog(char *p, unsigned long size, void (*f)(char *, cha
     pl_val = *pl;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      f((char*)*(pw + tmp), 0);
+      ls_inc_refcnt((char*)*(pw + tmp), 0);
       pl_val &= (pl_val - 1);
     }
     pl++, pw+=64;
@@ -390,17 +390,55 @@ static void inc_or_dec_ptrlog(char *p, unsigned long size, void (*f)(char *, cha
   pl_val = *pl & ~mask_e;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    f((char*)*(pw + tmp), 0);
+    ls_inc_refcnt((char*)*(pw + tmp), 0);
     pl_val &= (pl_val - 1);
   }
 }
 
-void ls_inc_ptrlog(char *p, unsigned long size) {
-  inc_or_dec_ptrlog(p, size, ls_inc_refcnt);
-}
-
 void ls_dec_ptrlog(char *p, unsigned long size) {
-  inc_or_dec_ptrlog(p, size, ls_dec_refcnt);
+  char *end = p + size;
+  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long mask_e = (-1L << bidx_e);
+  unsigned long *pw = (unsigned long *)p;
+  unsigned long pl_val;
+
+  if (widx == widx_e) {
+    pl_val = (*pl & ~mask_e) >> bidx;
+    while (pl_val) {
+      unsigned long tmp = __builtin_ctzl(pl_val);
+      ls_dec_refcnt((char*)*(pw+tmp), 0);
+      pl_val &= (pl_val - 1);
+    }
+    return;
+  }
+
+  pl_val = *pl >> bidx;
+  while (pl_val) {
+    unsigned long tmp = __builtin_ctzl(pl_val);
+    ls_dec_refcnt((char*)*(pw+tmp), 0);
+    pl_val &= (pl_val - 1);
+  }
+  pl++, pw+=(64-bidx);
+
+  while (pl < pl_e) {
+    pl_val = *pl;
+    while (pl_val) {
+      unsigned long tmp = __builtin_ctzl(pl_val);
+      ls_dec_refcnt((char*)*(pw + tmp), 0);
+      pl_val &= (pl_val - 1);
+    }
+    pl++, pw+=64;
+  }
+
+  pl_val = *pl & ~mask_e;
+  while (pl_val) {
+    unsigned long tmp = __builtin_ctzl(pl_val);
+    ls_dec_refcnt((char*)*(pw + tmp), 0);
+    pl_val &= (pl_val - 1);
+  }
 }
 
 /********************/
