@@ -162,6 +162,20 @@ __attribute__((section(".preinit_array"),
 /**  Refcnt modification  ****/
 /*****************************/
 
+/* prototypes */
+void ls_inc_refcnt(char *p, char *dest);
+void ls_dec_refcnt(char *p, char *dummy);
+void ls_incdec_refcnt(char *p, char *dest);
+void ls_incdec_refcnt2(char *p, char *dest);
+void ls_clear_ptrlog(char *p, unsigned long size);
+void ls_copy_ptrlog(char *d, char *s, unsigned long size);
+void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size);
+void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size);
+void ls_check_ptrlog(char *p, unsigned long size);
+void ls_inc_ptrlog(char *d, char *s, unsigned long size);
+void ls_dec_ptrlog(char *p, unsigned long size);
+void ls_dec_clear_ptrlog(char *p, unsigned long size);
+
 /* p - written pointer value
    dest - store destination */
 void ls_inc_refcnt(char *p, char *dest) {
@@ -269,6 +283,10 @@ void ls_incdec_refcnt(char *p, char *dest) {
   }
 }
 
+void ls_incdec_refcnt2(char *p, char *dest) {
+  ls_incdec_refcnt(p, dest+8);
+}
+
 void ls_clear_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
@@ -311,6 +329,72 @@ void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
 
   unsigned long cur = bidx;
   unsigned long s_cur = s_bidx;
+
+  ls_clear_ptrlog(d, size);
+
+  while (bitcnts--) {
+    unsigned long s_curbit = 1UL << s_cur;
+    unsigned long bitset = (*s_pl & s_curbit) ? 1 : 0;
+    *pl = (*pl & ~(bitset << cur)) | (bitset << cur);
+    cur = (++cur & 0x3f);
+    s_cur = (++s_cur & 0x3f);
+    if (cur == 0) pl++;
+    if (s_cur == 0) s_pl++;
+  }
+}
+
+/* corresponding to memcpy, d and s do not overlap */
+void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size) {
+  char *end = d + size, *s_end = s + size;
+  unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long s_widx = s_offset >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long s_bidx = s_offset & 0x3F, s_bidx_e = s_offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long *s_pl = global_ptrlog + s_widx;
+  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
+  unsigned long s_mask = ((1UL << s_bidx) - 1), s_mask_e = (-1L << s_bidx_e);
+  unsigned long pl_val, s_pl_val;
+
+  unsigned long bitcnts = size >> 3;
+
+  /* TODO: do this more efficiently */
+  /* TODO: can we skip if size is not multiple of 8? */
+
+  unsigned long cur = bidx;
+  unsigned long s_cur = s_bidx;
+
+  ls_dec_clear_ptrlog(d, size);
+  ls_inc_ptrlog(d, s, size);
+}
+
+/* corresponding to memmove, d and s may overlap */
+void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size) {
+  char *end = d + size, *s_end = s + size;
+  unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long s_widx = s_offset >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long s_bidx = s_offset & 0x3F, s_bidx_e = s_offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long *s_pl = global_ptrlog + s_widx;
+  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
+  unsigned long s_mask = ((1UL << s_bidx) - 1), s_mask_e = (-1L << s_bidx_e);
+  unsigned long pl_val, s_pl_val;
+
+  unsigned long bitcnts = size >> 3;
+
+  if (((d > s) && (d > (s+size)))
+      || ((s > d) && (s > (d+size)))) {
+    ls_incdec_copy_ptrlog(d, s, size);
+    return;
+  }
+
+  unsigned long cur = bidx;
+  unsigned long s_cur = s_bidx;
   while (bitcnts--) {
     unsigned long s_curbit = 1UL << s_cur;
     unsigned long bitset = (*s_pl & s_curbit) ? 1 : 0;
@@ -349,21 +433,21 @@ void ls_check_ptrlog(char *p, unsigned long size) {
     dummy = 0;
 }
 
-void ls_inc_ptrlog(char *p, unsigned long size) {
-  char *end = p + size;
-  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
+void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
+  char *end = s + size;
+  unsigned long offset = (unsigned long)s >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
   unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
   unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
   unsigned long mask_e = (-1L << bidx_e);
-  unsigned long *pw = (unsigned long *)p;
+  unsigned long *sw = (unsigned long *)s, *dw = (unsigned long *)d;
   unsigned long pl_val;
 
   if (widx == widx_e) {
     pl_val = (*pl & ~mask_e) >> bidx;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_inc_refcnt((char*)*(pw+tmp), 0);
+      ls_inc_refcnt((char*)*(sw+tmp), (char*)(dw+tmp));
       pl_val &= (pl_val - 1);
     }
     return;
@@ -372,25 +456,25 @@ void ls_inc_ptrlog(char *p, unsigned long size) {
   pl_val = *pl >> bidx;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_inc_refcnt((char*)*(pw+tmp), 0);
+    ls_inc_refcnt((char*)*(sw+tmp), (char*)(dw+tmp));
     pl_val &= (pl_val - 1);
   }
-  pl++, pw+=(64-bidx);
+  pl++, sw+=(64-bidx), dw+=(64-bidx);
 
   while (pl < pl_e) {
     pl_val = *pl;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_inc_refcnt((char*)*(pw + tmp), 0);
+      ls_inc_refcnt((char*)*(sw + tmp), (char*)(dw+tmp));
       pl_val &= (pl_val - 1);
     }
-    pl++, pw+=64;
+    pl++, sw+=64, dw+=64;
   }
 
   pl_val = *pl & ~mask_e;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_inc_refcnt((char*)*(pw + tmp), 0);
+    ls_inc_refcnt((char*)*(sw + tmp), (char*)(dw+tmp));
     pl_val &= (pl_val - 1);
   }
 }
@@ -439,6 +523,56 @@ void ls_dec_ptrlog(char *p, unsigned long size) {
     ls_dec_refcnt((char*)*(pw + tmp), 0);
     pl_val &= (pl_val - 1);
   }
+}
+
+void ls_dec_clear_ptrlog(char *p, unsigned long size) {
+  char *end = p + size;
+  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
+  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
+  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
+  unsigned long *pw = (unsigned long *)p;
+  unsigned long pl_val;
+
+  if (widx == widx_e) {
+    pl_val = (*pl & ~mask_e) >> bidx;
+    while (pl_val) {
+      unsigned long tmp = __builtin_ctzl(pl_val);
+      ls_dec_refcnt((char*)*(pw+tmp), 0);
+      pl_val &= (pl_val - 1);
+    }
+    *pl &= (mask | mask_e); // clear
+    return;
+  }
+
+  pl_val = *pl >> bidx;
+  while (pl_val) {
+    unsigned long tmp = __builtin_ctzl(pl_val);
+    ls_dec_refcnt((char*)*(pw+tmp), 0);
+    pl_val &= (pl_val - 1);
+  }
+  *pl &= mask; // clear
+  pl++, pw+=(64-bidx);
+
+  while (pl < pl_e) {
+    pl_val = *pl;
+    while (pl_val) {
+      unsigned long tmp = __builtin_ctzl(pl_val);
+      ls_dec_refcnt((char*)*(pw + tmp), 0);
+      pl_val &= (pl_val - 1);
+    }
+    *pl = 0; // clear
+    pl++, pw+=64;
+  }
+
+  pl_val = *pl & ~mask_e;
+  while (pl_val) {
+    unsigned long tmp = __builtin_ctzl(pl_val);
+    ls_dec_refcnt((char*)*(pw + tmp), 0);
+    pl_val &= (pl_val - 1);
+  }
+  *pl &= mask_e;
 }
 
 /********************/
