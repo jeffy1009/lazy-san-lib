@@ -243,10 +243,11 @@ void ls_incdec_refcnt(char *p, char *dest) {
 
   info = get_obj_info(p);
   if (need_dec) {
-    old_info = get_obj_info((char*)(*(unsigned long*)dest));
-    if (info == old_info)
+    old_info = get_obj_info((char*)(*(unsigned long*)(offset << 3)));
+    if (info == old_info) {
       DEBUG(same_ldst_cnt++);
       return;
+    }
   }
 
   if (info) {
