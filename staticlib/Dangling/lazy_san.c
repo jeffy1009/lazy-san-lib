@@ -178,6 +178,18 @@ void ls_inc_ptrlog(char *d, char *s, unsigned long size);
 void ls_dec_ptrlog(char *p, unsigned long size);
 void ls_dec_clear_ptrlog(char *p, unsigned long size);
 
+#ifndef CPLUSPLUS
+static inline void ls_free(char *p, ls_obj_info *info) { free(p); }
+#else
+static inline void ls_free(char *p, ls_obj_info *info) {
+  switch (info->flags & LS_INFO_USE_MASK) {
+  case 0: free(p); break;
+  case LS_INFO_USE_ZDLPV: _ZdlPv(p); break;
+  case LS_INFO_USE_ZDAPV: _ZdaPv(p); break;
+  }
+}
+#endif
+
 /* p - written pointer value
    dest - store destination */
 void ls_inc_refcnt(char *p, char *dest) {
@@ -215,7 +227,7 @@ void ls_dec_refcnt(char *p, char *dummy) {
         char *tmp = info->base;
         DEBUG(quarantine_size -= info->size);
         delete_obj_info(info);
-        free(tmp);
+        ls_free(tmp, info);
       }
       /* if not yet freed, the pointer is probably in some
          register. */
@@ -278,7 +290,7 @@ void ls_incdec_refcnt(char *p, char *dest) {
         char *tmp = old_info->base;
         DEBUG(quarantine_size -= old_info->size);
         delete_obj_info(old_info);
-        free(tmp);
+        ls_free(tmp, old_info);
       }
       /* if not yet freed, the pointer is probably in some
          register. */
@@ -612,7 +624,7 @@ static void free_common(char *base, ls_obj_info *info) {
 
   if (info->refcnt <= 0) {
     delete_obj_info(info);
-    free(base);
+    ls_free(base, info);
   } else {
     info->flags |= LS_INFO_FREED;
     DEBUG(quarantine_size += info->size);
@@ -669,3 +681,54 @@ void free_wrap(void *ptr, int need_dec) {
     DEBUG(ls_check_ptrlog(ptr, info->size));
   free_common(ptr, info);
 }
+
+#ifdef CPLUSPLUS
+
+void *_Znwm_wrap(size_t size) {
+  char *ret = _Znwm(size);
+  DEBUG(if (!ret)
+          printf("[lazy-san] new failed ??????\n"));
+  alloc_common(ret, size);
+  return(ret);
+}
+
+void *_Znam_wrap(size_t size) {
+  char *ret = _Znam(size);
+  DEBUG(if (!ret)
+          printf("[lazy-san] new[] failed ??????\n"));
+  alloc_common(ret, size);
+  return(ret);
+}
+
+void _ZdlPv_wrap(void *ptr, int need_dec) {
+  ls_obj_info *info;
+
+  if (ptr==NULL)
+    return;
+
+  info = get_obj_info(ptr);
+  if (need_dec)
+    ls_dec_ptrlog(ptr, info->size);
+  else
+    DEBUG(ls_check_ptrlog(ptr, info->size));
+  info->flags |= LS_INFO_USE_ZDLPV;
+  free_common(ptr, info);
+}
+
+void _ZdaPv_wrap(void *ptr, int need_dec) {
+  ls_obj_info *info;
+
+  if (ptr==NULL)
+    return;
+
+  info = get_obj_info(ptr);
+  if (!info) { _ZdaPv(ptr); return; } /* alloc'ed with new[0] */
+  if (need_dec)
+    ls_dec_ptrlog(ptr, info->size);
+  else
+    DEBUG(ls_check_ptrlog(ptr, info->size));
+  info->flags |= LS_INFO_USE_ZDAPV;
+  free_common(ptr, info);
+}
+
+#endif
