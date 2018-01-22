@@ -8,10 +8,6 @@
 #include "lsan_common.h"
 #include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
 
-/* uncomment to use red black tree
-   comment to use metalloc */
-/* #define USE_RBTREE */
-
 #ifdef USE_RBTREE
 #include "red_black_tree.h"
 #else
