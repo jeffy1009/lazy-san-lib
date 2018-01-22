@@ -3,12 +3,6 @@
 #include <stdlib.h>
 #include "red_black_tree.h"
 
-rb_red_blk_tree *rb_root = NULL;
-
-void __attribute__((constructor)) init_rb_tree() {
-  rb_root = RBTreeCreate();
-}
-
 int RBTreeCompare(const rb_red_blk_node *a, const rb_red_blk_node *b) {
   if ((a->info.base <= b->info.base)
       && (b->info.base <= (a->info.base + a->info.size))) {

@@ -34,7 +34,7 @@ static unsigned long *global_ptrlog;
 
 #ifdef USE_RBTREE
 
-extern rb_red_blk_tree *rb_root;
+rb_red_blk_tree *rb_root = NULL;
 
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   return &RBTreeInsert(rb_root, base, size)->info;
@@ -152,6 +152,8 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   }
   printf("[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space);
+#else
+  rb_root = RBTreeCreate();
 #endif
 }
 
