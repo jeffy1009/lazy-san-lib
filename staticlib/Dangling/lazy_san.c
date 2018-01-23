@@ -163,8 +163,8 @@ __attribute__((section(".preinit_array"),
 /* prototypes */
 void ls_inc_refcnt(char *p, char *dest);
 void ls_dec_refcnt(char *p, char *dummy);
+void ls_incdec_refcnt_noinc(char *dest);
 void ls_incdec_refcnt(char *p, char *dest);
-void ls_incdec_refcnt2(char *p, char *dest);
 void ls_clear_ptrlog(char *p, unsigned long size);
 void ls_copy_ptrlog(char *d, char *s, unsigned long size);
 void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size);
@@ -231,11 +231,51 @@ void ls_dec_refcnt(char *p, char *dummy) {
   }
 }
 
+void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
+  unsigned long offset, widx, bidx;
+  unsigned long need_dec;
+  unsigned long tmp_ptrlog_val;
+  ls_obj_info *old_info;
+
+  offset = (unsigned long)dest >> 3;
+  widx = offset >> 6; /* word index */
+  bidx = offset & 0x3F; /* bit index */
+  tmp_ptrlog_val = global_ptrlog[widx];
+  need_dec = (tmp_ptrlog_val & (1UL << bidx));
+
+  if (!need_dec)
+    return;
+
+  global_ptrlog[widx] = tmp_ptrlog_val & ~(1UL << bidx);
+  DEBUG(num_incdec++);
+
+  old_info = get_obj_info(*(unsigned long*)(offset << 3));
+  if (!old_info)
+    return;
+
+  DEBUG(if (old_info->refcnt<=REFCNT_INIT && !(old_info->flags & LS_INFO_RCBELOWZERO)) {
+      old_info->flags |= LS_INFO_RCBELOWZERO;
+      /* printf("[lazy-san] refcnt <= 0???\n"); */
+    });
+
+  --old_info->refcnt;
+  if (old_info->refcnt<=0) {
+    if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
+      char *tmp = old_info->base;
+      DEBUG(quarantine_size -= old_info->size);
+      delete_obj_info(old_info);
+      ls_free(tmp, old_info);
+    }
+    /* if not yet freed, the pointer is probably in some
+       register. */
+  }
+}
+
 // NOTE: we should increase refcnt before decreasing it..
 // if it is decreased first, refcnt could become 0 and the quarantine cleared
 // but if the pointer happens to point to the same object, refcnt will become
 // one again..
-void ls_incdec_refcnt(char *p, char *dest) {
+void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   ls_obj_info *info, *old_info;
   unsigned long offset, widx, bidx;
   unsigned long need_dec;
@@ -252,29 +292,26 @@ void ls_incdec_refcnt(char *p, char *dest) {
   need_dec = (tmp_ptrlog_val & (1UL << bidx));
 
   info = get_obj_info(p);
+  if (!info && !need_dec)
+    return;
+
+  DEBUG(if (info && (info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
+          printf("[lazy-san] refcnt became alive again??\n"));
+
   if (need_dec) {
     old_info = get_obj_info((char*)(*(unsigned long*)(offset << 3)));
     if (info == old_info) {
       DEBUG(same_ldst_cnt++);
       return;
     }
-  }
+    if (!info)
+      global_ptrlog[widx] = tmp_ptrlog_val & ~(1UL << bidx);
+    else
+      ++info->refcnt;
 
-  if (info) {
-    DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
-            printf("[lazy-san] refcnt became alive again??\n"));
-    ++info->refcnt;
+    if (!old_info)
+      return;
 
-    /* mark pointer type field */
-    global_ptrlog[widx] = tmp_ptrlog_val | (1UL << bidx);
-  } else {
-    global_ptrlog[widx] = tmp_ptrlog_val & ~(1UL << bidx);
-  }
-
-  if (!need_dec)
-    return;
-
-  if (old_info) { /* is heap node */
     DEBUG(if (old_info->refcnt<=REFCNT_INIT && !(old_info->flags & LS_INFO_RCBELOWZERO)) {
         old_info->flags |= LS_INFO_RCBELOWZERO;
         /* printf("[lazy-san] refcnt <= 0???\n"); */
@@ -291,14 +328,13 @@ void ls_incdec_refcnt(char *p, char *dest) {
       /* if not yet freed, the pointer is probably in some
          register. */
     }
+  } else if (info) {
+    global_ptrlog[widx] = tmp_ptrlog_val | (1UL << bidx);
+    ++info->refcnt;
   }
 }
 
-void ls_incdec_refcnt2(char *p, char *dest) {
-  ls_incdec_refcnt(p, dest+8);
-}
-
-void ls_clear_ptrlog(char *p, unsigned long size) {
+void __attribute__((noinline)) ls_clear_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
@@ -318,7 +354,7 @@ void ls_clear_ptrlog(char *p, unsigned long size) {
   *pl &= mask_e;
 }
 
-void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
+void __attribute__((noinline)) ls_copy_ptrlog(char *d, char *s, unsigned long size) {
   char *end = d + size, *s_end = s + size;
   unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
@@ -355,7 +391,7 @@ void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
 }
 
 /* corresponding to memcpy, d and s do not overlap */
-void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size) {
+void __attribute__((noinline)) ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size) {
   char *end = d + size, *s_end = s + size;
   unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
@@ -382,7 +418,7 @@ void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size) {
 }
 
 /* corresponding to memmove, d and s may overlap */
-void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size) {
+void __attribute__((noinline)) ls_incdec_move_ptrlog(char *d, char *s, unsigned long size) {
   char *end = d + size, *s_end = s + size;
   unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
@@ -418,7 +454,7 @@ void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size) {
 }
 
 /* Only used for debugging */
-void ls_check_ptrlog(char *p, unsigned long size) {
+void __attribute__((noinline)) ls_check_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
@@ -444,7 +480,7 @@ void ls_check_ptrlog(char *p, unsigned long size) {
     dummy = 0;
 }
 
-void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
+void __attribute__((noinline)) ls_inc_ptrlog(char *d, char *s, unsigned long size) {
   char *end = s + size;
   unsigned long offset = (unsigned long)s >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
@@ -490,7 +526,7 @@ void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
   }
 }
 
-void ls_dec_ptrlog(char *p, unsigned long size) {
+void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
@@ -536,7 +572,7 @@ void ls_dec_ptrlog(char *p, unsigned long size) {
   }
 }
 
-void ls_dec_clear_ptrlog(char *p, unsigned long size) {
+void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
