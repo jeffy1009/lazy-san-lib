@@ -1,5 +1,5 @@
 cflags="$cflags -flto"
-ldflagsalways="$ldflagsalways -flto -Wl,-plugin-opt=-load=$PATHLLVMPLUGINS/libplugins.so"
+ldflagsalways="$ldflagsalways -flto"
 
 # helper for pass config files
 add_lto_args() {

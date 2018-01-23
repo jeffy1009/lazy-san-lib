@@ -227,6 +227,7 @@ for instance in $INSTANCES; do
 
 		echo "building staticlib-$instance"
 		cd "$PATHROOT/staticlib"
+		run make clean
 		run make METAPAGETABLEDIR="$metapagetabledir" OBJDIR="$PATHAUTOFRAMEWORKOBJ/staticlib-$instance" $CONFIG_STATICLIB_MAKE -j"$JOBS"
 		;;
 	*)
@@ -236,24 +237,9 @@ for instance in $INSTANCES; do
 	esac
 done
 
-echo "building llvm-plugins"
-cd "$PATHROOT/llvm-plugins"
-run make -j"$JOBS" GOLDINSTDIR="$PATHAUTOPREFIX" TARGETDIR="$PATHLLVMPLUGINS"
-
-echo "initializing targets"
-for target in $TARGETS; do
-	if [ ! -d "$PATHROOT/autosetup/targets/$target" ]; then
-		echo "error: unknown target: $target" >&2
-		exit 1
-	fi
-	if [ -f "$PATHROOT/autosetup/targets/$target/init.inc" ]; then
-		source "$PATHROOT/autosetup/targets/$target/init.inc"
-	fi
-done
-
-echo "building nothp"
-cd "$PATHROOT/nothp"
-run make
+# echo "building nothp"
+# cd "$PATHROOT/nothp"
+# run make
 
 # Configure targets
 for instance in $INSTANCES; do

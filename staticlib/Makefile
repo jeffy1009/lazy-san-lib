@@ -1,7 +1,7 @@
 CC=clang
 METAPAGETABLEDIR=../metapagetable
 INCLUDES=-I. -I$(METAPAGETABLEDIR)
-CFLAGS=-c -Werror -Wall -flto -fPIC -std=gnu11
+CFLAGS=-c -Wall -flto -fPIC -std=gnu11
 OBJDIR=./obj
 
 CFLAGS += -O3
@@ -35,7 +35,7 @@ all: directories $(EXE) $(EXE2)
 clean:
 	rm -f $(OBJS)
 	rm -f $(DEPS)
-	rm -f $(EXE) (EXE2)
+	rm -f $(EXE) $(EXE2)
 
 $(EXE): $(OBJS) directories
 	llvm-ar crv $@ $(OBJS)
