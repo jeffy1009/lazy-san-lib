@@ -9,7 +9,7 @@ int RBTreeCompare(const rb_red_blk_node *a, const rb_red_blk_node *b) {
     if ((b->info.size != 0)
         && !(((a->info.base + a->info.size) < b->info.base)
              || ((b->info.base + b->info.size) < a->info.base)))
-      printf("[interposer] existing entry with overlaping region!\n");
+      fprintf(stderr, "[lazy-san] existing entry with overlaping region!\n");
     return 0;
   }
   if( a->info.base > b->info.base) return(1);
@@ -221,9 +221,9 @@ void InorderTreePrint(rb_red_blk_tree* tree, rb_red_blk_node* x, int depth) {
   if (x != tree->nil) {
     int i = depth;
     InorderTreePrint(tree,x->left,depth+1);
-    while (i--) printf(" ");
-    printf("[0x%lx, 0x%lx]", (long)x->info.base, (long)(x->info.base + x->info.size));
-    printf("(0x%lx, %ld)#%d%s\n",
+    while (i--) fprintf(stderr, " ");
+    fprintf(stderr, "[0x%lx, 0x%lx]", (long)x->info.base, (long)(x->info.base + x->info.size));
+    fprintf(stderr, "(0x%lx, %ld)#%d%s\n",
            x->info.size, x->info.size, x->info.refcnt,
            (x->info.flags & LS_INFO_FREED) ? "F" : "");
     InorderTreePrint(tree,x->right,depth+1);

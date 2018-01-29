@@ -71,7 +71,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   /* keep meta space large enough to have sufficient vacant slots */
   if ((num_obj_info+num_obj_info/4) > meta_idx_limit) {
     DEBUG(if ((num_obj_info+num_obj_info/4) > meta_idx_max)
-            printf("[lazy-san] num obj info reached the limit!\n"));
+            fprintf(stderr, "[lazy-san] num obj info reached the limit!\n"));
     meta_idx_limit *= 2;
   }
   cur->base = base;
@@ -104,12 +104,12 @@ static unsigned long num_incdec = 0, same_ldst_cnt = 0;
 
 #ifdef DEBUG_LS
 void atexit_hook() {
-  printf("PROGRAM TERMINATED!\n");
-  printf("max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
+  fprintf(stderr, "PROGRAM TERMINATED!\n");
+  fprintf(stderr, "max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
          alloc_max, alloc_cur, alloc_tot);
-  printf("num ptrs: %ld\n", num_ptrs);
-  printf("quarantine max: %ld B, cur: %ld B\n", quarantine_max, quarantine_size);
-  printf("num incdec: %ld, same ldst cnt: %ld\n", num_incdec, same_ldst_cnt);
+  fprintf(stderr, "num ptrs: %ld\n", num_ptrs);
+  fprintf(stderr, "quarantine max: %ld B, cur: %ld B\n", quarantine_max, quarantine_size);
+  fprintf(stderr, "num incdec: %ld, same ldst cnt: %ld\n", num_incdec, same_ldst_cnt);
 }
 #endif
 
@@ -120,7 +120,7 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   initialized = 1;
 
   DEBUG(if (atexit(atexit_hook))
-          printf("atexit failed!\n"));
+          fprintf(stderr, "atexit failed!\n"));
 
   /* sys_mmap from gperftools/src/base/linux_syscall_support.h
      gives much better performance and memory usage */
@@ -130,10 +130,10 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
                            -1, 0);
   if (global_ptrlog == (void*)-1) {
      /* strangely, perror() segfaults */
-    printf("[lazy-san] global_ptrlog mmap failed: errno %d\n", errno);
+    fprintf(stderr, "[lazy-san] global_ptrlog mmap failed: errno %d\n", errno);
     exit(0);
   }
-  printf("[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n",
+  fprintf(stderr, "[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n",
          (unsigned long)global_ptrlog);
 
 #ifndef USE_RBTREE
@@ -143,10 +143,10 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
                            -1, 0);
   if (ls_meta_space == (void*)-1) {
      /* strangely, perror() segfaults */
-    printf("[lazy-san] ls_meta_space mmap failed: errno %d\n", errno);
+    fprintf(stderr, "[lazy-san] ls_meta_space mmap failed: errno %d\n", errno);
     exit(0);
   }
-  printf("[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
+  fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space);
 #else
   rb_root = RBTreeCreate();
@@ -197,7 +197,7 @@ void ls_inc_refcnt(char *p, char *dest) {
 
   if (info) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
-            printf("[lazy-san] refcnt became alive again??\n"));
+            fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
     ++info->refcnt;
 
     /* mark pointer type field */
@@ -215,7 +215,7 @@ void ls_dec_refcnt(char *p, char *dummy) {
   if (info) { /* is heap node */
     DEBUG(if (info->refcnt<=REFCNT_INIT && !(info->flags & LS_INFO_RCBELOWZERO)) {
         info->flags |= LS_INFO_RCBELOWZERO;
-        /* printf("[lazy-san] refcnt <= 0???\n"); */
+        /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
     --info->refcnt;
     if (info->refcnt<=0) {
@@ -255,7 +255,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
 
   DEBUG(if (old_info->refcnt<=REFCNT_INIT && !(old_info->flags & LS_INFO_RCBELOWZERO)) {
       old_info->flags |= LS_INFO_RCBELOWZERO;
-      /* printf("[lazy-san] refcnt <= 0???\n"); */
+      /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
     });
 
   --old_info->refcnt;
@@ -296,7 +296,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
     return;
 
   DEBUG(if (info && (info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
-          printf("[lazy-san] refcnt became alive again??\n"));
+          fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
 
   if (need_dec) {
     old_info = get_obj_info((char*)(*(unsigned long*)(offset << 3)));
@@ -314,7 +314,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
 
     DEBUG(if (old_info->refcnt<=REFCNT_INIT && !(old_info->flags & LS_INFO_RCBELOWZERO)) {
         old_info->flags |= LS_INFO_RCBELOWZERO;
-        /* printf("[lazy-san] refcnt <= 0???\n"); */
+        /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
 
     --old_info->refcnt;
@@ -638,7 +638,7 @@ static ls_obj_info *alloc_common(char *base, unsigned long size) {
     quarantine_mb_tmp = quarantine_max/1024/1024;
     if (quarantine_mb_tmp > quarantine_max_mb) {
       quarantine_max_mb = quarantine_mb_tmp;
-      printf("[lazy-san] quarantine_max = %ld MB\n", quarantine_max_mb);
+      fprintf(stderr, "[lazy-san] quarantine_max = %ld MB\n", quarantine_max_mb);
     }
   }
 #endif
@@ -652,7 +652,7 @@ static void free_common(char *base, ls_obj_info *info) {
   DEBUG(--alloc_cur);
 
   DEBUG(if (info->flags & LS_INFO_FREED)
-          printf("[lazy-san] double free??????\n"));
+          fprintf(stderr, "[lazy-san] double free??????\n"));
 
   if (info->refcnt <= 0) {
     delete_obj_info(info);
@@ -666,7 +666,7 @@ static void free_common(char *base, ls_obj_info *info) {
 void *malloc_wrap(size_t size) {
   char *ret = malloc(size);
   DEBUG(if (!ret)
-          printf("[lazy-san] malloc failed ??????\n"));
+          fprintf(stderr, "[lazy-san] malloc failed ??????\n"));
   alloc_common(ret, size);
   return(ret);
 }
@@ -674,7 +674,7 @@ void *malloc_wrap(size_t size) {
 void *calloc_wrap(size_t num, size_t size) {
   char *ret = calloc(num, size);
   DEBUG(if (!ret)
-          printf("[lazy-san] calloc failed ??????\n"));
+          fprintf(stderr, "[lazy-san] calloc failed ??????\n"));
   alloc_common(ret, num*size);
   return(ret);
 }
@@ -719,7 +719,7 @@ void free_wrap(void *ptr, int need_dec) {
 void *_Znwm_wrap(size_t size) {
   char *ret = _Znwm(size);
   DEBUG(if (!ret)
-          printf("[lazy-san] new failed ??????\n"));
+          fprintf(stderr, "[lazy-san] new failed ??????\n"));
   alloc_common(ret, size);
   return(ret);
 }
@@ -727,7 +727,7 @@ void *_Znwm_wrap(size_t size) {
 void *_Znam_wrap(size_t size) {
   char *ret = _Znam(size);
   DEBUG(if (!ret)
-          printf("[lazy-san] new[] failed ??????\n"));
+          fprintf(stderr, "[lazy-san] new[] failed ??????\n"));
   alloc_common(ret, size);
   return(ret);
 }
