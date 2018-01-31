@@ -704,6 +704,10 @@ void *realloc_wrap(void *ptr, size_t size) {
     newinfo = alloc_common(ret, size);
     ls_copy_ptrlog(ret, ptr, info->size);
     free_common(p, info);
+  } else {
+    if (info->size < size)
+      ls_clear_ptrlog(ret+info->size, size-info->size);
+    info->size = size;
   }
 
   return(ret);
