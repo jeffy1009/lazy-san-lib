@@ -28,6 +28,8 @@
 
 static unsigned long *global_ptrlog;
 
+__attribute__ ((visibility("hidden"))) extern char _end;
+
 #ifdef USE_RBTREE
 
 rb_red_blk_tree *rb_root = NULL;
@@ -50,8 +52,6 @@ static void delete_obj_info(ls_obj_info *info) {
 #else /* !USE_RBTREE */
 
 #define LS_META_SPACE_MAX_SIZE 0x08000000 /* 128MB */
-
-__attribute__ ((visibility("hidden"))) extern char _end;
 
 static ls_obj_info *ls_meta_space;
 static unsigned long cur_meta_idx = 0;
@@ -102,8 +102,12 @@ static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb 
 static unsigned long num_incdec = 0, same_ldst_cnt = 0;
 #endif
 
+static void ls_dec_ptrlog_int(char *p, unsigned long size);
+
 #ifdef DEBUG_LS
 void atexit_hook() {
+  ls_dec_ptrlog_int(0, (unsigned long)&_end);
+
   fprintf(stderr, "PROGRAM TERMINATED!\n");
   fprintf(stderr, "max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
          alloc_max, alloc_cur, alloc_tot);
@@ -526,7 +530,7 @@ void __attribute__((noinline)) ls_inc_ptrlog(char *d, char *s, unsigned long siz
   }
 }
 
-void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
+static void ls_dec_ptrlog_int(char *p, unsigned long size) {
   char *end = p + size;
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
@@ -570,6 +574,11 @@ void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
     ls_dec_refcnt((char*)*(pw + tmp), 0);
     pl_val &= (pl_val - 1);
   }
+}
+
+void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
+  ls_dec_ptrlog_int(p, size);
+  DEBUG(memset(p, 0, size));
 }
 
 void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) {
