@@ -713,17 +713,14 @@ void *realloc_wrap(void *ptr, size_t size) {
   return(ret);
 }
 
-void free_wrap(void *ptr, int need_dec) {
+void free_wrap(void *ptr) {
   ls_obj_info *info;
 
   if (ptr==NULL)
     return;
 
   info = get_obj_info(ptr);
-  if (need_dec)
-    ls_dec_ptrlog(ptr, info->size);
-  else
-    DEBUG(ls_check_ptrlog(ptr, info->size));
+  ls_dec_ptrlog(ptr, info->size);
   free_common(ptr, info);
 }
 
@@ -745,22 +742,19 @@ void *_Znam_wrap(size_t size) {
   return(ret);
 }
 
-void _ZdlPv_wrap(void *ptr, int need_dec) {
+void _ZdlPv_wrap(void *ptr) {
   ls_obj_info *info;
 
   if (ptr==NULL)
     return;
 
   info = get_obj_info(ptr);
-  if (need_dec)
-    ls_dec_ptrlog(ptr, info->size);
-  else
-    DEBUG(ls_check_ptrlog(ptr, info->size));
+  ls_dec_ptrlog(ptr, info->size);
   info->flags |= LS_INFO_USE_ZDLPV;
   free_common(ptr, info);
 }
 
-void _ZdaPv_wrap(void *ptr, int need_dec) {
+void _ZdaPv_wrap(void *ptr) {
   ls_obj_info *info;
 
   if (ptr==NULL)
@@ -768,10 +762,7 @@ void _ZdaPv_wrap(void *ptr, int need_dec) {
 
   info = get_obj_info(ptr);
   if (!info) { _ZdaPv(ptr); return; } /* alloc'ed with new[0] */
-  if (need_dec)
-    ls_dec_ptrlog(ptr, info->size);
-  else
-    DEBUG(ls_check_ptrlog(ptr, info->size));
+  ls_dec_ptrlog(ptr, info->size);
   info->flags |= LS_INFO_USE_ZDAPV;
   free_common(ptr, info);
 }
