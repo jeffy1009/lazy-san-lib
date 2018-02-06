@@ -1718,10 +1718,6 @@ void TCMallocImplementation::MarkThreadBusy() {
   do_free(do_malloc(0));
 }
 
-__thread void *tcmalloc_stackptr;
-
-#define STORE_STACKPTR() do { tcmalloc_stackptr = __builtin_frame_address(0); } while (0)
-
 //-------------------------------------------------------------------
 // Exported routines
 //-------------------------------------------------------------------
@@ -1759,7 +1755,6 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_malloc(size_t size) __THROW {
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_free(void* ptr) __THROW {
-  STORE_STACKPTR();
   MallocHook::InvokeDeleteHook(ptr);
   do_free(ptr);
 }
@@ -1772,14 +1767,12 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_calloc(size_t n,
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_cfree(void* ptr) __THROW {
-  STORE_STACKPTR();
   MallocHook::InvokeDeleteHook(ptr);
   do_free(ptr);
 }
 
 extern "C" PERFTOOLS_DLL_DECL void* tc_realloc(void* old_ptr,
                                                size_t new_size) __THROW {
-  STORE_STACKPTR();
   if (old_ptr == NULL) {
     void* result = do_malloc_or_cpp_alloc(new_size);
     MallocHook::InvokeNewHook(result, new_size);
@@ -1811,7 +1804,6 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_new_nothrow(size_t size, const std::nothr
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_delete(void* p) __THROW {
-  STORE_STACKPTR();
   MallocHook::InvokeDeleteHook(p);
   do_free(p);
 }
@@ -1820,7 +1812,6 @@ extern "C" PERFTOOLS_DLL_DECL void tc_delete(void* p) __THROW {
 // (via ::operator delete(ptr, nothrow)).
 // But it's really the same as normal delete, so we just do the same thing.
 extern "C" PERFTOOLS_DLL_DECL void tc_delete_nothrow(void* p, const std::nothrow_t&) __THROW {
-  STORE_STACKPTR();
   MallocHook::InvokeDeleteHook(p);
   do_free(p);
 }
@@ -1844,13 +1835,11 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_newarray_nothrow(size_t size, const std::
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_deletearray(void* p) __THROW {
-  STORE_STACKPTR();
   MallocHook::InvokeDeleteHook(p);
   do_free(p);
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_deletearray_nothrow(void* p, const std::nothrow_t&) __THROW {
-  STORE_STACKPTR();
   MallocHook::InvokeDeleteHook(p);
   do_free(p);
 }
