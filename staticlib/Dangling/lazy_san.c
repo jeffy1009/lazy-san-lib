@@ -604,7 +604,7 @@ void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) 
     pl_val = (*pl & ~mask_e) >> bidx;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_dec_refcnt((char*)*(pw+tmp), 0);
+      ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
       pl_val &= (pl_val - 1);
     }
     *pl &= (mask | mask_e); // clear
@@ -614,7 +614,7 @@ void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) 
   pl_val = *pl >> bidx;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_dec_refcnt((char*)*(pw+tmp), 0);
+    ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
     pl_val &= (pl_val - 1);
   }
   *pl &= mask; // clear
@@ -624,7 +624,7 @@ void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) 
     pl_val = *pl;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_dec_refcnt((char*)*(pw + tmp), 0);
+      ls_dec_refcnt((char*)*(pw + tmp), pw+tmp);
       pl_val &= (pl_val - 1);
     }
     *pl = 0; // clear
@@ -634,7 +634,7 @@ void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) 
   pl_val = *pl & ~mask_e;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_dec_refcnt((char*)*(pw + tmp), 0);
+    ls_dec_refcnt((char*)*(pw + tmp), pw+tmp);
     pl_val &= (pl_val - 1);
   }
   *pl &= mask_e;
