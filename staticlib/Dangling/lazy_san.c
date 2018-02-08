@@ -102,7 +102,7 @@ static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb 
 static unsigned long num_incdec = 0, same_ldst_cnt = 0;
 #endif
 
-static void ls_dec_ptrlog_int(char *p, unsigned long size);
+static void ls_dec_ptrlog_int(char *p, char *end);
 
 #ifdef DEBUG_LS
 void atexit_hook() {
@@ -530,8 +530,7 @@ void __attribute__((noinline)) ls_inc_ptrlog(char *d, char *s, unsigned long siz
   }
 }
 
-static void ls_dec_ptrlog_int(char *p, unsigned long size) {
-  char *end = p + size;
+static void ls_dec_ptrlog_int(char *p, char *end) {
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
   unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
@@ -577,8 +576,14 @@ static void ls_dec_ptrlog_int(char *p, unsigned long size) {
 }
 
 void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
-  ls_dec_ptrlog_int(p, size);
+  ls_dec_ptrlog_int(p, p+size);
   DEBUG(memset(p, 0, size));
+}
+
+void __attribute__((noinline)) ls_dec_ptrlog_addr(char *p, char *end) {
+  assert(p && end && p < end);
+  ls_dec_ptrlog_int(p, end);
+  // do not memset!
 }
 
 void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) {
