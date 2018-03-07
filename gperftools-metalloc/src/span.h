@@ -52,6 +52,7 @@ struct Span {
   unsigned int  sizeclass : 8;  // Size-class for small objects (or 0)
   unsigned int  location : 2;   // Is the span on a freelist, and if so, which?
   unsigned int  sample : 1;     // Sampled object?
+  unsigned int  cur_length;
 
 #undef SPAN_HISTORY
 #ifdef SPAN_HISTORY

@@ -181,6 +181,7 @@ void SizeMap::Init() {
 
     // Add new class
     class_to_pages_[sc] = my_pages;
+    class_to_pages_orig_[sc] = my_pages;
     class_to_size_[sc] = size;
     sc++;
   }

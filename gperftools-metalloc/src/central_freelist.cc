@@ -131,7 +131,7 @@ void CentralFreeList::ReleaseToSpans(void* object) {
   span->refcount--;
   if (span->refcount == 0) {
     Event(span, '#', 0);
-    counter_ -= ((span->length<<kPageShift) /
+    counter_ -= ((span->cur_length<<kPageShift) /
                  Static::sizemap()->ByteSizeForClass(span->sizeclass));
     tcmalloc::DLL_Remove(span);
     --num_spans_;
@@ -305,18 +305,60 @@ int CentralFreeList::FetchFromOneSpans(int N, void **start, void **end) {
   int result = 0;
   void *prev, *curr;
   curr = span->objects;
+ again:
   do {
     prev = curr;
     curr = *(reinterpret_cast<void**>(curr));
   } while (++result < N && curr != NULL);
 
   if (curr == NULL) {
+    ASSERT(size_class_ == span->sizeclass);
+    const size_t npages = Static::sizemap()->class_to_pages(size_class_);
+    const size_t npages_orig = Static::sizemap()->class_to_pages_orig(size_class_);
+    void** tail = (void**)prev;
+    char *span_start = reinterpret_cast<char*>(span->start << kPageShift);
+    ASSERT(prev >= span_start);
+    char *span_end = span_start + (npages << kPageShift);
+    const size_t size = Static::sizemap()->ByteSizeForClass(size_class_);
+    if (span->cur_length < span->length) {
+      char* ptr = span_start + (span->cur_length << kPageShift);
+      char *limit = ptr + (npages_orig << kPageShift);
+      char *tmp = ptr;
+      if (limit > span_end) {
+        limit = span_end;
+        span->cur_length = span->length;
+      } else {
+        ASSERT(span->cur_length + npages_orig <= 32);
+        if (span->cur_length + npages_orig > 32)
+          Log(kLog, __FILE__, __LINE__, "tcmalloc: span cur_length > 32");
+        span->cur_length += npages_orig;
+      }
+      int num = 0;
+      while (ptr + size <= limit) {
+        *tail = ptr;
+        tail = reinterpret_cast<void**>(ptr);
+        ptr += size;
+        num++;
+      }
+      ASSERT(ptr <= limit);
+      *tail = NULL;
+      counter_ += num;
+      if (num > 0) {
+        curr = tmp;
+        if (result < N)
+          goto again;
+        else
+          goto skip;
+      }
+    }
+
     // Move to empty list
     tcmalloc::DLL_Remove(span);
     tcmalloc::DLL_Prepend(&empty_, span);
     Event(span, 'E', 0);
   }
 
+  skip:
   *start = span->objects;
   *end = prev;
   span->objects = curr;
@@ -331,6 +373,7 @@ void CentralFreeList::Populate() {
   // Release central list lock while operating on pageheap
   lock_.Unlock();
   const size_t npages = Static::sizemap()->class_to_pages(size_class_);
+  const size_t npages_orig = Static::sizemap()->class_to_pages_orig(size_class_);
 
   Span* span;
   {
@@ -373,7 +416,7 @@ void CentralFreeList::Populate() {
   // TODO: coloring of objects to avoid cache conflicts?
   void** tail = &span->objects;
   char* ptr = reinterpret_cast<char*>(span->start << kPageShift);
-  char* limit = ptr + (npages << kPageShift);
+  char* limit = ptr + (npages_orig << kPageShift);
   const size_t size = Static::sizemap()->ByteSizeForClass(size_class_);
   int num = 0;
   while (ptr + size <= limit) {
@@ -385,6 +428,7 @@ void CentralFreeList::Populate() {
   ASSERT(ptr <= limit);
   *tail = NULL;
   span->refcount = 0; // No sub-object in use yet
+  span->cur_length = npages_orig;
 
   // Add span to list of non-empty spans
   lock_.Lock();

@@ -215,6 +215,8 @@ class SizeMap {
   // Mapping from size class to number of pages to allocate at a time
   size_t class_to_pages_[kNumClasses];
 
+  size_t class_to_pages_orig_[kNumClasses];
+
  public:
   // Constructor should do nothing since we rely on explicit Init()
   // call, which may or may not be called before the constructor runs.
@@ -240,6 +242,10 @@ class SizeMap {
   // Mapping from size class to number of pages to allocate at a time
   inline size_t class_to_pages(size_t cl) {
     return class_to_pages_[cl];
+  }
+
+  inline size_t class_to_pages_orig(size_t cl) {
+    return class_to_pages_orig_[cl];
   }
 
   // Number of objects to move between a per-thread list and a central
