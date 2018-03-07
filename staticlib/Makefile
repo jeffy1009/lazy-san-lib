@@ -33,7 +33,7 @@ endif
 all: directories $(EXE) $(EXE2)
 
 clean:
-	rm -f $(OBJS)
+	rm -f $(OBJS) $(OBJS2)
 	rm -f $(DEPS)
 	rm -f $(EXE) $(EXE2)
 
