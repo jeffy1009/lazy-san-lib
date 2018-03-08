@@ -336,7 +336,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   }
 }
 
-void __attribute__((noinline)) ls_copy_ptrlog(char *d, char *s, unsigned long size) {
+void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
   char *end = d + size, *s_end = s + size;
   unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
@@ -461,7 +461,7 @@ void __attribute__((noinline)) ls_check_ptrlog(char *p, unsigned long size) {
     dummy = 0;
 }
 
-void __attribute__((noinline)) ls_inc_ptrlog(char *d, char *s, unsigned long size) {
+void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
   char *end = s + size;
   unsigned long offset = (unsigned long)s >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
