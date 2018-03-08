@@ -381,8 +381,6 @@ void __attribute__((noinline)) ls_copy_ptrlog(char *d, char *s, unsigned long si
   unsigned long cur = bidx;
   unsigned long s_cur = s_bidx;
 
-  ls_clear_ptrlog(d, size);
-
   while (bitcnts--) {
     unsigned long s_curbit = 1UL << s_cur;
     unsigned long bitset = (*s_pl & s_curbit) ? 1 : 0;
@@ -419,6 +417,7 @@ void __attribute__((noinline)) ls_incdec_copy_ptrlog(char *d, char *s, unsigned 
 
   ls_dec_clear_ptrlog(d, size);
   ls_inc_ptrlog(d, s, size);
+  ls_copy_ptrlog(d, s, size);
 }
 
 /* corresponding to memmove, d and s may overlap */
