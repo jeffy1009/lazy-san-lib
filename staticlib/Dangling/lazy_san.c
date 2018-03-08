@@ -393,7 +393,7 @@ void __attribute__((noinline)) ls_incdec_copy_ptrlog(char *d, char *s, unsigned 
   unsigned long cur = bidx;
   unsigned long s_cur = s_bidx;
 
-  ls_dec_clear_ptrlog(d, size);
+  ls_dec_ptrlog(d, size);
   ls_inc_ptrlog(d, s, size);
   ls_copy_ptrlog(d, s, size);
 }
