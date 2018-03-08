@@ -169,14 +169,12 @@ void ls_inc_refcnt(char *p, char *dest);
 void ls_dec_refcnt(char *p, char *dummy);
 void ls_incdec_refcnt_noinc(char *dest);
 void ls_incdec_refcnt(char *p, char *dest);
-void ls_clear_ptrlog(char *p, unsigned long size);
 void ls_copy_ptrlog(char *d, char *s, unsigned long size);
 void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size);
 void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size);
 void ls_check_ptrlog(char *p, unsigned long size);
 void ls_inc_ptrlog(char *d, char *s, unsigned long size);
 void ls_dec_ptrlog(char *p, unsigned long size);
-void ls_dec_clear_ptrlog(char *p, unsigned long size);
 
 #ifndef CPLUSPLUS
 static inline void ls_free(char *p, ls_obj_info *info) { free(p); }
@@ -336,26 +334,6 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
     global_ptrlog[widx] = tmp_ptrlog_val | (1UL << bidx);
     ++info->refcnt;
   }
-}
-
-void __attribute__((noinline)) ls_clear_ptrlog(char *p, unsigned long size) {
-  char *end = p + size;
-  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
-  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
-  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
-  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
-
-  if (widx == widx_e) {
-    mask |= mask_e;
-    *pl &= mask;
-    return;
-  }
-
-  *pl++ &= mask;
-  while (pl < pl_e)
-    *pl++ = 0;
-  *pl &= mask_e;
 }
 
 void __attribute__((noinline)) ls_copy_ptrlog(char *d, char *s, unsigned long size) {
@@ -587,56 +565,6 @@ void __attribute__((noinline)) ls_dec_ptrlog_addr(char *p, char *end) {
   assert(p && end && p < end);
   ls_dec_ptrlog_int(p, end);
   // do not memset!
-}
-
-void __attribute__((noinline)) ls_dec_clear_ptrlog(char *p, unsigned long size) {
-  char *end = p + size;
-  unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
-  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
-  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
-  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
-  unsigned long *pw = (unsigned long *)p;
-  unsigned long pl_val;
-
-  if (widx == widx_e) {
-    pl_val = (*pl & ~mask_e) >> bidx;
-    while (pl_val) {
-      unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
-      pl_val &= (pl_val - 1);
-    }
-    *pl &= (mask | mask_e); // clear
-    return;
-  }
-
-  pl_val = *pl >> bidx;
-  while (pl_val) {
-    unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
-    pl_val &= (pl_val - 1);
-  }
-  *pl &= mask; // clear
-  pl++, pw+=(64-bidx);
-
-  while (pl < pl_e) {
-    pl_val = *pl;
-    while (pl_val) {
-      unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_dec_refcnt((char*)*(pw + tmp), pw+tmp);
-      pl_val &= (pl_val - 1);
-    }
-    *pl = 0; // clear
-    pl++, pw+=64;
-  }
-
-  pl_val = *pl & ~mask_e;
-  while (pl_val) {
-    unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_dec_refcnt((char*)*(pw + tmp), pw+tmp);
-    pl_val &= (pl_val - 1);
-  }
-  *pl &= mask_e;
 }
 
 /********************/
