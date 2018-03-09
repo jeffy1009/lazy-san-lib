@@ -380,10 +380,11 @@ void __attribute__((noinline)) ls_incdec_copy_ptrlog(char *d, char *s, unsigned 
   /* TODO: do this more efficiently */
   /* TODO: can we skip if size is not multiple of 8? */
 
+  if (s == d) /* very weird case found in gcc */
+    return;
 
-  ls_dec_ptrlog(d, size);
+  ls_dec_ptrlog_int(d, d + size);
   ls_inc_ptrlog(d, s, size);
-  ls_copy_ptrlog(d, s, size);
 }
 
 /* corresponding to memmove, d and s may overlap */
