@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,13 +201,13 @@ void ls_inc_refcnt(char *p, char *dest) {
   if (info) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
             fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
-    ++info->refcnt;
+    atomic_fetch_add((atomic_int*)&info->refcnt, 1);
 
     /* mark pointer type field */
     offset = (unsigned long)dest >> 3;
     widx = offset >> 6; /* word index */
     bidx = offset & 0x3F; /* bit index */
-    global_ptrlog[widx] |= (1UL << bidx);
+    atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
   }
 }
 
@@ -219,7 +220,7 @@ void ls_dec_refcnt(char *p, char *dummy) {
         info->flags |= LS_INFO_RCBELOWZERO;
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
-    --info->refcnt;
+    atomic_fetch_sub((atomic_int*)&info->refcnt, 1);
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = info->base;
@@ -248,7 +249,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
   if (!need_dec)
     return;
 
-  global_ptrlog[widx] = tmp_ptrlog_val & ~(1UL << bidx);
+  atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
   DEBUG(num_incdec++);
 
   old_info = get_obj_info(*(unsigned long*)(offset << 3));
@@ -260,7 +261,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
       /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
     });
 
-  --old_info->refcnt;
+  atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
   if (old_info->refcnt<=0) {
     if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
       char *tmp = old_info->base;
@@ -307,9 +308,9 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       return;
     }
     if (!info)
-      global_ptrlog[widx] = tmp_ptrlog_val & ~(1UL << bidx);
+      atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
     else
-      ++info->refcnt;
+      atomic_fetch_add((atomic_int*)&info->refcnt, 1);
 
     if (!old_info)
       return;
@@ -319,7 +320,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
 
-    --old_info->refcnt;
+    atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
     if (old_info->refcnt<=0) {
       if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = old_info->base;
@@ -331,8 +332,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
          register. */
     }
   } else if (info) {
-    global_ptrlog[widx] = tmp_ptrlog_val | (1UL << bidx);
-    ++info->refcnt;
+    atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
+    atomic_fetch_add((atomic_int*)&info->refcnt, 1);
   }
 }
 
@@ -523,7 +524,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
       ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
       pl_val &= (pl_val - 1);
     }
-    *pl &= (mask | mask_e); // clear
+    atomic_fetch_and((atomic_ulong*)pl, (mask | mask_e));
     return;
   }
 
@@ -533,7 +534,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
     ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
     pl_val &= (pl_val - 1);
   }
-  *pl &= mask; // clear
+  atomic_fetch_and((atomic_ulong*)pl, mask);
   pl++, pw+=(64-bidx);
 
   while (pl < pl_e) {
@@ -553,7 +554,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
     ls_dec_refcnt((char*)*(pw + tmp), pw+tmp);
     pl_val &= (pl_val - 1);
   }
-  *pl &= mask_e;
+  atomic_fetch_and((atomic_ulong*)pl, mask_e);
 }
 
 void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
