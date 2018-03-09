@@ -88,6 +88,8 @@ static ls_obj_info *get_obj_info(char *p) {
   return NULL;
 }
 
+size_t tc_malloc_size(void *);
+
 static void delete_obj_info(ls_obj_info *info) {
   metaset_8((unsigned long)info->base, tc_malloc_size(info->base), 0);
   info->base = 0;
@@ -107,7 +109,7 @@ static void ls_dec_ptrlog_int(char *p, char *end);
 
 #ifdef DEBUG_LS
 void atexit_hook() {
-  ls_dec_ptrlog_int(0, (unsigned long)&_end);
+  ls_dec_ptrlog_int(0, &_end);
 
   fprintf(stderr, "PROGRAM TERMINATED!\n");
   fprintf(stderr, "max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
@@ -176,6 +178,13 @@ void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size);
 void ls_check_ptrlog(char *p, unsigned long size);
 void ls_inc_ptrlog(char *d, char *s, unsigned long size);
 void ls_dec_ptrlog(char *p, unsigned long size);
+
+#ifdef CPLUSPLUS
+void *_Znwm(size_t);
+void *_Znam(size_t);
+void _ZdlPv(void *);
+void _ZdaPv(void *);
+#endif
 
 #ifndef CPLUSPLUS
 static inline void ls_free(char *p, ls_obj_info *info) { free(p); }
@@ -252,7 +261,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
   atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
   DEBUG(num_incdec++);
 
-  old_info = get_obj_info(*(unsigned long*)(offset << 3));
+  old_info = get_obj_info((char*)*(unsigned long*)(offset << 3));
   if (!old_info)
     return;
 
@@ -338,23 +347,18 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
 }
 
 void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
-  char *end = d + size, *s_end = s + size;
-  unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
-  unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
-  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long offset = (unsigned long)d >> 3;
+  unsigned long s_offset = (unsigned long)s >> 3;
+  unsigned long widx = offset >> 6;
   unsigned long s_widx = s_offset >> 6;
-  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  unsigned long s_bidx = s_offset & 0x3F, s_bidx_e = s_offset_e & 0x3F;
-  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long bidx = offset & 0x3F;
+  unsigned long s_bidx = s_offset & 0x3F;
+  unsigned long *pl = global_ptrlog + widx;
   unsigned long *s_pl = global_ptrlog + s_widx;
-  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
-  unsigned long s_mask = ((1UL << s_bidx) - 1), s_mask_e = (-1L << s_bidx_e);
-  unsigned long pl_val, s_pl_val;
 
   unsigned long bitcnts = size >> 3;
 
   /* TODO: do this more efficiently */
-  /* TODO: distinguish memcpy from memmove */
   /* TODO: can we skip if size is not multiple of 8? */
 
   unsigned long cur = bidx;
@@ -364,8 +368,8 @@ void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
     unsigned long s_curbit = 1UL << s_cur;
     unsigned long bitset = (*s_pl & s_curbit) ? 1 : 0;
     *pl = (*pl & ~(bitset << cur)) | (bitset << cur);
-    cur = (++cur & 0x3f);
-    s_cur = (++s_cur & 0x3f);
+    cur = ((cur+1) & 0x3f);
+    s_cur = ((s_cur+1) & 0x3f);
     if (cur == 0) pl++;
     if (s_cur == 0) s_pl++;
   }
@@ -373,26 +377,9 @@ void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
 
 /* corresponding to memcpy, d and s do not overlap */
 void __attribute__((noinline)) ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size) {
-  char *end = d + size, *s_end = s + size;
-  unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
-  unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
-  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
-  unsigned long s_widx = s_offset >> 6;
-  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  unsigned long s_bidx = s_offset & 0x3F, s_bidx_e = s_offset_e & 0x3F;
-  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
-  unsigned long *s_pl = global_ptrlog + s_widx;
-  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
-  unsigned long s_mask = ((1UL << s_bidx) - 1), s_mask_e = (-1L << s_bidx_e);
-  unsigned long pl_val, s_pl_val;
-
-  unsigned long bitcnts = size >> 3;
-
   /* TODO: do this more efficiently */
   /* TODO: can we skip if size is not multiple of 8? */
 
-  unsigned long cur = bidx;
-  unsigned long s_cur = s_bidx;
 
   ls_dec_ptrlog(d, size);
   ls_inc_ptrlog(d, s, size);
@@ -401,18 +388,14 @@ void __attribute__((noinline)) ls_incdec_copy_ptrlog(char *d, char *s, unsigned 
 
 /* corresponding to memmove, d and s may overlap */
 void __attribute__((noinline)) ls_incdec_move_ptrlog(char *d, char *s, unsigned long size) {
-  char *end = d + size, *s_end = s + size;
-  unsigned long offset = (unsigned long)d >> 3, offset_e = (unsigned long)end >> 3;
-  unsigned long s_offset = (unsigned long)s >> 3, s_offset_e = (unsigned long)s_end >> 3;
-  unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
+  unsigned long offset = (unsigned long)d >> 3;
+  unsigned long s_offset = (unsigned long)s >> 3;
+  unsigned long widx = offset >> 6;
   unsigned long s_widx = s_offset >> 6;
-  unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
-  unsigned long s_bidx = s_offset & 0x3F, s_bidx_e = s_offset_e & 0x3F;
-  unsigned long *pl = global_ptrlog + widx, *pl_e = global_ptrlog + widx_e;
+  unsigned long bidx = offset & 0x3F;
+  unsigned long s_bidx = s_offset & 0x3F;
+  unsigned long *pl = global_ptrlog + widx;
   unsigned long *s_pl = global_ptrlog + s_widx;
-  unsigned long mask = ((1UL << bidx) - 1), mask_e = (-1L << bidx_e);
-  unsigned long s_mask = ((1UL << s_bidx) - 1), s_mask_e = (-1L << s_bidx_e);
-  unsigned long pl_val, s_pl_val;
 
   unsigned long bitcnts = size >> 3;
 
@@ -428,8 +411,8 @@ void __attribute__((noinline)) ls_incdec_move_ptrlog(char *d, char *s, unsigned 
     unsigned long s_curbit = 1UL << s_cur;
     unsigned long bitset = (*s_pl & s_curbit) ? 1 : 0;
     *pl = (*pl & ~(bitset << cur)) | (bitset << cur);
-    cur = (++cur & 0x3f);
-    s_cur = (++s_cur & 0x3f);
+    cur = ((cur+1) & 0x3f);
+    s_cur = ((s_cur+1) & 0x3f);
     if (cur == 0) pl++;
     if (s_cur == 0) s_pl++;
   }
@@ -521,7 +504,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
     pl_val = (*pl & ~mask_e) >> bidx;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
+      ls_dec_refcnt((char*)*(pw+tmp), (char*)(pw+tmp));
       pl_val &= (pl_val - 1);
     }
     atomic_fetch_and((atomic_ulong*)pl, (mask | mask_e));
@@ -531,7 +514,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
   pl_val = *pl >> bidx;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_dec_refcnt((char*)*(pw+tmp), pw+tmp);
+    ls_dec_refcnt((char*)*(pw+tmp), (char*)(pw+tmp));
     pl_val &= (pl_val - 1);
   }
   atomic_fetch_and((atomic_ulong*)pl, mask);
@@ -541,7 +524,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
     pl_val = *pl;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_dec_refcnt((char*)*(pw + tmp), pw+tmp);
+      ls_dec_refcnt((char*)*(pw + tmp), (char*)(pw+tmp));
       pl_val &= (pl_val - 1);
     }
     *pl = 0; // clear
@@ -551,7 +534,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
   pl_val = *pl & ~mask_e;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_dec_refcnt((char*)*(pw + tmp), pw+tmp);
+    ls_dec_refcnt((char*)*(pw + tmp), (char*)(pw+tmp));
     pl_val &= (pl_val - 1);
   }
   atomic_fetch_and((atomic_ulong*)pl, mask_e);
