@@ -105,11 +105,11 @@ static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb 
 static unsigned long num_incdec = 0, same_ldst_cnt = 0;
 #endif
 
-static void ls_dec_ptrlog_int(char *p, char *end);
+static void ls_dec_ptrlog_int(char *p, char *end, int clearbit);
 
 #ifdef DEBUG_LS
 void atexit_hook() {
-  ls_dec_ptrlog_int(0, &_end);
+  ls_dec_ptrlog_int(0, &_end, 0);
 
   fprintf(stderr, "PROGRAM TERMINATED!\n");
   fprintf(stderr, "max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
@@ -168,15 +168,15 @@ __attribute__((section(".preinit_array"),
 /*****************************/
 
 /* prototypes */
-void ls_inc_refcnt(char *p, char *dest);
-void ls_dec_refcnt(char *p, char *dummy);
+static void ls_inc_refcnt(char *p, char *dest, int setbit);
+static void ls_dec_refcnt(char *p, char *dummy);
 void ls_incdec_refcnt_noinc(char *dest);
 void ls_incdec_refcnt(char *p, char *dest);
-void ls_copy_ptrlog(char *d, char *s, unsigned long size);
+static void ls_copy_ptrlog(char *d, char *s, unsigned long size);
 void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size);
 void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size);
 void ls_check_ptrlog(char *p, unsigned long size);
-void ls_inc_ptrlog(char *d, char *s, unsigned long size);
+static void ls_inc_ptrlog(char *d, char *s, unsigned long size, int setbit);
 void ls_dec_ptrlog(char *p, unsigned long size);
 
 #ifdef CPLUSPLUS
@@ -199,8 +199,10 @@ static inline void ls_free(char *p, ls_obj_info *info) {
 #endif
 
 /* p - written pointer value
-   dest - store destination */
-void ls_inc_refcnt(char *p, char *dest) {
+   dest - store destination
+   setbit - whether or not bit field should be set, should be constant-folded
+   upon inlining */
+static void ls_inc_refcnt(char *p, char *dest, int setbit) {
   ls_obj_info *info;
   unsigned long offset, widx, bidx;
 
@@ -212,15 +214,17 @@ void ls_inc_refcnt(char *p, char *dest) {
             fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
     atomic_fetch_add((atomic_int*)&info->refcnt, 1);
 
-    /* mark pointer type field */
-    offset = (unsigned long)dest >> 3;
-    widx = offset >> 6; /* word index */
-    bidx = offset & 0x3F; /* bit index */
-    atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
+    if (setbit) {
+      /* mark pointer type field */
+      offset = (unsigned long)dest >> 3;
+      widx = offset >> 6; /* word index */
+      bidx = offset & 0x3F; /* bit index */
+      atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
+    }
   }
 }
 
-void ls_dec_refcnt(char *p, char *dummy) {
+static void ls_dec_refcnt(char *p, char *dummy) {
   ls_obj_info *info;
 
   info = get_obj_info(p);
@@ -346,7 +350,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   }
 }
 
-void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
+static void ls_copy_ptrlog(char *d, char *s, unsigned long size) {
   unsigned long offset = (unsigned long)d >> 3;
   unsigned long s_offset = (unsigned long)s >> 3;
   unsigned long widx = offset >> 6;
@@ -383,8 +387,8 @@ void __attribute__((noinline)) ls_incdec_copy_ptrlog(char *d, char *s, unsigned 
   if (s == d) /* very weird case found in gcc */
     return;
 
-  ls_dec_ptrlog_int(d, d + size);
-  ls_inc_ptrlog(d, s, size);
+  ls_dec_ptrlog_int(d, d + size, 1);
+  ls_inc_ptrlog(d, s, size, 1);
 }
 
 /* corresponding to memmove, d and s may overlap */
@@ -406,8 +410,12 @@ void __attribute__((noinline)) ls_incdec_move_ptrlog(char *d, char *s, unsigned 
     return;
   }
 
+  ls_dec_ptrlog_int(d, d + size, 0);
+  ls_inc_ptrlog(d, s, size, 0);
+
   unsigned long cur = bidx;
   unsigned long s_cur = s_bidx;
+
   while (bitcnts--) {
     unsigned long s_curbit = 1UL << s_cur;
     unsigned long bitset = (*s_pl & s_curbit) ? 1 : 0;
@@ -446,7 +454,7 @@ void __attribute__((noinline)) ls_check_ptrlog(char *p, unsigned long size) {
     dummy = 0;
 }
 
-void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
+static void ls_inc_ptrlog(char *d, char *s, unsigned long size, int setbit) {
   char *end = s + size;
   unsigned long offset = (unsigned long)s >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
@@ -460,7 +468,7 @@ void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
     pl_val = (*pl & ~mask_e) >> bidx;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_inc_refcnt((char*)*(sw+tmp), (char*)(dw+tmp));
+      ls_inc_refcnt((char*)*(sw+tmp), (char*)(dw+tmp), setbit);
       pl_val &= (pl_val - 1);
     }
     return;
@@ -469,7 +477,7 @@ void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
   pl_val = *pl >> bidx;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_inc_refcnt((char*)*(sw+tmp), (char*)(dw+tmp));
+    ls_inc_refcnt((char*)*(sw+tmp), (char*)(dw+tmp), setbit);
     pl_val &= (pl_val - 1);
   }
   pl++, sw+=(64-bidx), dw+=(64-bidx);
@@ -478,7 +486,7 @@ void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
     pl_val = *pl;
     while (pl_val) {
       unsigned long tmp = __builtin_ctzl(pl_val);
-      ls_inc_refcnt((char*)*(sw + tmp), (char*)(dw+tmp));
+      ls_inc_refcnt((char*)*(sw + tmp), (char*)(dw+tmp), setbit);
       pl_val &= (pl_val - 1);
     }
     pl++, sw+=64, dw+=64;
@@ -487,12 +495,12 @@ void ls_inc_ptrlog(char *d, char *s, unsigned long size) {
   pl_val = *pl & ~mask_e;
   while (pl_val) {
     unsigned long tmp = __builtin_ctzl(pl_val);
-    ls_inc_refcnt((char*)*(sw + tmp), (char*)(dw+tmp));
+    ls_inc_refcnt((char*)*(sw + tmp), (char*)(dw+tmp), setbit);
     pl_val &= (pl_val - 1);
   }
 }
 
-static void ls_dec_ptrlog_int(char *p, char *end) {
+static void ls_dec_ptrlog_int(char *p, char *end, int clearbit) {
   unsigned long offset = (unsigned long)p >> 3, offset_e = (unsigned long)end >> 3;
   unsigned long widx = offset >> 6, widx_e = offset_e >> 6;
   unsigned long bidx = offset & 0x3F, bidx_e = offset_e & 0x3F;
@@ -508,7 +516,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
       ls_dec_refcnt((char*)*(pw+tmp), (char*)(pw+tmp));
       pl_val &= (pl_val - 1);
     }
-    atomic_fetch_and((atomic_ulong*)pl, (mask | mask_e));
+    if (clearbit) atomic_fetch_and((atomic_ulong*)pl, (mask | mask_e));
     return;
   }
 
@@ -518,7 +526,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
     ls_dec_refcnt((char*)*(pw+tmp), (char*)(pw+tmp));
     pl_val &= (pl_val - 1);
   }
-  atomic_fetch_and((atomic_ulong*)pl, mask);
+  if (clearbit) atomic_fetch_and((atomic_ulong*)pl, mask);
   pl++, pw+=(64-bidx);
 
   while (pl < pl_e) {
@@ -528,7 +536,7 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
       ls_dec_refcnt((char*)*(pw + tmp), (char*)(pw+tmp));
       pl_val &= (pl_val - 1);
     }
-    *pl = 0; // clear
+    if (clearbit) *pl = 0; // clear
     pl++, pw+=64;
   }
 
@@ -538,17 +546,17 @@ static void ls_dec_ptrlog_int(char *p, char *end) {
     ls_dec_refcnt((char*)*(pw + tmp), (char*)(pw+tmp));
     pl_val &= (pl_val - 1);
   }
-  atomic_fetch_and((atomic_ulong*)pl, mask_e);
+  if (clearbit) atomic_fetch_and((atomic_ulong*)pl, mask_e);
 }
 
 void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
-  ls_dec_ptrlog_int(p, p+size);
+  ls_dec_ptrlog_int(p, p+size, 1);
   DEBUG(memset(p, 0, size));
 }
 
 void __attribute__((noinline)) ls_dec_ptrlog_addr(char *p, char *end) {
   assert(p && end && p < end);
-  ls_dec_ptrlog_int(p, end);
+  ls_dec_ptrlog_int(p, end, 1);
   // do not memset!
 }
 
