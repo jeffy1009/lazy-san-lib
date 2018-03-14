@@ -11,9 +11,11 @@
 #define FLAGS_METALLOC_DEEPMETADATABYTES ${DEEPMETADATABYTES}
 
 extern void (*metalloc_malloc_prehook)(unsigned long size);
-extern void (*metalloc_malloc_posthook)(unsigned long ptr, unsigned long size);
-extern void (*metalloc_free_prehook)(unsigned long ptr, unsigned long size);
-extern void (*metalloc_free_posthook)(unsigned long ptr);
+extern void (*metalloc_malloc_posthook)(char *ptr, unsigned long size);
+extern void (*metalloc_realloc_posthook)(char *old_ptr, char *new_ptr,
+                                         unsigned long size);
+extern void (*metalloc_free_prehook)(char *ptr, unsigned long size);
+extern void (*metalloc_free_posthook)(char *ptr);
 
 #ifdef __cplusplus
 extern "C" {

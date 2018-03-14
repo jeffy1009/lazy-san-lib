@@ -22,9 +22,11 @@
 
 /* hooks into tcmalloc */
 void (*metalloc_malloc_prehook)(unsigned long size) = NULL;
-void (*metalloc_malloc_posthook)(unsigned long ptr, unsigned long size) = NULL;
-void (*metalloc_free_prehook)(unsigned long ptr, unsigned long size) = NULL;
-void (*metalloc_free_posthook)(unsigned long ptr) = NULL;
+void (*metalloc_malloc_posthook)(char *ptr, unsigned long size) = NULL;
+void (*metalloc_realloc_posthook)(char *old_ptr, char *new_ptr,
+                                  unsigned long size) = NULL;
+void (*metalloc_free_prehook)(char *ptr, unsigned long size) = NULL;
+void (*metalloc_free_posthook)(char *ptr) = NULL;
 
 //unsigned long pageTable[PAGETABLESIZE];
 bool isPageTableAlloced = false;

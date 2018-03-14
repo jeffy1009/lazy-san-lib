@@ -206,6 +206,7 @@ DEFINE_int64(tcmalloc_large_alloc_report_threshold,
              "logging unless the flag is overridden.  Set to 0 to "
              "disable reporting entirely.");
 
+__thread bool free_flag;
 
 // We already declared these functions in tcmalloc.h, but we have to
 // declare them again to give them an ATTRIBUTE_SECTION: we want to
@@ -1224,8 +1225,8 @@ static ALWAYS_INLINE void* reset_metadata(ThreadCache* heap, void *ptr, unsigned
   METALLOC_ALLOC_HOOK(ptr, deepmetadata, content_size, allocation_size);
 
   if (metalloc_malloc_posthook)
-	metalloc_malloc_posthook((unsigned long)ptr, allocation_size);
-	 
+    metalloc_malloc_posthook((char*)ptr, allocation_size);
+
   return ptr;
 }
 
@@ -1372,12 +1373,6 @@ ALWAYS_INLINE void do_free_helper(void* ptr,
   }
   ASSERT(ptr != NULL);
 
-  /* Metaalloc free prehook */
-  if (metalloc_free_prehook) {
-	metalloc_free_prehook((unsigned long)ptr, Static::sizemap()->class_to_size(cl));
-        //METALLOC_ALLOC_HOOK(ptr, 0, 0, Static::sizemap()->class_to_size(cl));
-  }
-
   if (FLAGS_METALLOC_DEEPMETADATA && !FLAGS_METALLOC_FIXEDCOMPRESSION) {
     do_free_metadata(get_deepmetadata_ptr(ptr), invalid_free_fn, heap, heap_must_be_valid);
     /* TODO: DangSan - Set metadata ptr to NULL.
@@ -1515,6 +1510,8 @@ ALWAYS_INLINE void* do_realloc_with_callback(
     // that we already know the sizeclass of old_ptr.  The benefit
     // would be small, so don't bother.
     // do_free_with_callback(old_ptr, invalid_free_fn);
+    if (metalloc_realloc_posthook)
+      metalloc_realloc_posthook((char*)old_ptr, (char*)new_ptr, new_size);
     return new_ptr;
   } else {
 #ifdef METALLOC_RESIZE_HOOK
@@ -1523,6 +1520,8 @@ ALWAYS_INLINE void* do_realloc_with_callback(
     // We still need to call hooks to report the updated size:
     MallocHook::InvokeDeleteHook(old_ptr);
     MallocHook::InvokeNewHook(old_ptr, new_size);
+    if (metalloc_realloc_posthook)
+      metalloc_realloc_posthook((char*)old_ptr, (char*)old_ptr, new_size);
     return old_ptr;
   }
 }
@@ -1755,8 +1754,14 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_malloc(size_t size) __THROW {
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_free(void* ptr) __THROW {
-  MallocHook::InvokeDeleteHook(ptr);
-  do_free(ptr);
+  if (free_flag) {
+    free_flag = 0;
+    MallocHook::InvokeDeleteHook(ptr);
+    do_free(ptr);
+  } else {
+    if (metalloc_free_prehook)
+      metalloc_free_prehook((char*)ptr, 0); // 0 means it is called from free()
+  }
 }
 
 extern "C" PERFTOOLS_DLL_DECL void* tc_calloc(size_t n,
@@ -1804,8 +1809,14 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_new_nothrow(size_t size, const std::nothr
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_delete(void* p) __THROW {
-  MallocHook::InvokeDeleteHook(p);
-  do_free(p);
+  if (free_flag) {
+    free_flag = 0;
+    MallocHook::InvokeDeleteHook(p);
+    do_free(p);
+  } else {
+    if (metalloc_free_prehook)
+      metalloc_free_prehook((char*)p, 1); // 1 means it is called from delete
+  }
 }
 
 // Standard C++ library implementations define and use this
@@ -1835,8 +1846,14 @@ extern "C" PERFTOOLS_DLL_DECL void* tc_newarray_nothrow(size_t size, const std::
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_deletearray(void* p) __THROW {
-  MallocHook::InvokeDeleteHook(p);
-  do_free(p);
+  if (free_flag) {
+    free_flag = 0;
+    MallocHook::InvokeDeleteHook(p);
+    do_free(p);
+  } else {
+    if (metalloc_free_prehook)
+      metalloc_free_prehook((char*)p, 2); // 2 means it is called from delete[]
+  }
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_deletearray_nothrow(void* p, const std::nothrow_t&) __THROW {

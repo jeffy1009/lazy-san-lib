@@ -1,6 +1,9 @@
 #ifndef LSAN_COMMON_H
 #define LSAN_COMMON_H
 
+#include <unistd.h>
+#include "metapagetable.h"
+
 #define REFCNT_INIT 0
 
 #define LS_INFO_FREED 		0x1
@@ -17,5 +20,7 @@ typedef struct ls_obj_info_t {
   int refcnt;
   int flags;
 } ls_obj_info;
+
+extern __thread bool free_flag;
 
 #endif /* LSAN_COMMON_H */

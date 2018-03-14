@@ -31,6 +31,29 @@ static unsigned long *global_ptrlog;
 
 __attribute__ ((visibility("hidden"))) extern char _end;
 
+/* prototypes */
+
+static void ls_inc_refcnt(char *p, char *dest, int setbit);
+static void ls_dec_refcnt(char *p, char *dummy);
+void ls_incdec_refcnt_noinc(char *dest);
+void ls_incdec_refcnt(char *p, char *dest);
+static void ls_copy_ptrlog(char *d, char *s, unsigned long size);
+void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size);
+void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size);
+void ls_check_ptrlog(char *p, unsigned long size);
+static void ls_inc_ptrlog(char *d, char *s, unsigned long size, int setbit);
+static void ls_dec_ptrlog_int(char *p, char *end, int clearbit);
+void ls_dec_ptrlog(char *p, unsigned long size);
+
+#ifdef CPLUSPLUS
+void _ZdlPv(void *);
+void _ZdaPv(void *);
+#endif
+
+static void alloc_common(char *base, unsigned long size);
+static void free_common(char *base, unsigned long source);
+static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size);
+
 #ifdef USE_RBTREE
 
 rb_red_blk_tree *rb_root = NULL;
@@ -105,8 +128,6 @@ static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb 
 static unsigned long num_incdec = 0, same_ldst_cnt = 0;
 #endif
 
-static void ls_dec_ptrlog_int(char *p, char *end, int clearbit);
-
 #ifdef DEBUG_LS
 void atexit_hook() {
   ls_dec_ptrlog_int(0, &_end, 0);
@@ -158,6 +179,10 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
 #else
   rb_root = RBTreeCreate();
 #endif
+
+  metalloc_malloc_posthook = alloc_common;
+  metalloc_realloc_posthook = realloc_hook;
+  metalloc_free_prehook = free_common;
 }
 
 __attribute__((section(".preinit_array"),
@@ -167,29 +192,14 @@ __attribute__((section(".preinit_array"),
 /**  Refcnt modification  ****/
 /*****************************/
 
-/* prototypes */
-static void ls_inc_refcnt(char *p, char *dest, int setbit);
-static void ls_dec_refcnt(char *p, char *dummy);
-void ls_incdec_refcnt_noinc(char *dest);
-void ls_incdec_refcnt(char *p, char *dest);
-static void ls_copy_ptrlog(char *d, char *s, unsigned long size);
-void ls_incdec_copy_ptrlog(char *d, char *s, unsigned long size);
-void ls_incdec_move_ptrlog(char *d, char *s, unsigned long size);
-void ls_check_ptrlog(char *p, unsigned long size);
-static void ls_inc_ptrlog(char *d, char *s, unsigned long size, int setbit);
-void ls_dec_ptrlog(char *p, unsigned long size);
-
-#ifdef CPLUSPLUS
-void *_Znwm(size_t);
-void *_Znam(size_t);
-void _ZdlPv(void *);
-void _ZdaPv(void *);
-#endif
-
 #ifndef CPLUSPLUS
-static inline void ls_free(char *p, ls_obj_info *info) { free(p); }
+static inline void ls_free(char *p, ls_obj_info *info) {
+  free_flag = 1;
+  free(p);
+}
 #else
 static inline void ls_free(char *p, ls_obj_info *info) {
+  free_flag = 1;
   switch (info->flags & LS_INFO_USE_MASK) {
   case 0: free(p); break;
   case LS_INFO_USE_ZDLPV: _ZdlPv(p); break;
@@ -561,10 +571,10 @@ void __attribute__((noinline)) ls_dec_ptrlog_addr(char *p, char *end) {
 }
 
 /********************/
-/**  Wrappers  ******/
+/**  Hooks    *******/
 /********************/
 
-static ls_obj_info *alloc_common(char *base, unsigned long size) {
+static void alloc_common(char *base, unsigned long size) {
 #ifdef DEBUG_LS
   if (++alloc_cur > alloc_max)
     alloc_max = alloc_cur;
@@ -581,15 +591,39 @@ static ls_obj_info *alloc_common(char *base, unsigned long size) {
   }
 #endif
 
-  return alloc_obj_info(base, size);
+  alloc_obj_info(base, size);
 }
 
-static void free_common(char *base, ls_obj_info *info) {
+static void free_common(char *base, unsigned long source) {
+  if (base == 0)
+    return;
+
   DEBUG(--alloc_cur);
 
+  ls_obj_info *info = get_obj_info(base);
   DEBUG(if (info->flags & LS_INFO_FREED)
           fprintf(stderr, "[lazy-san] double free??????\n"));
 
+#ifdef CPLUSPLUS
+  switch (source) {
+  case 1: {
+    info->flags |= LS_INFO_USE_ZDLPV;
+    break;
+  }
+  case 2: {
+    if (info) {
+      info->flags |= LS_INFO_USE_ZDAPV;
+      break;
+    }
+    /* alloc'ed with new[0] */
+    free_flag = 1;
+    _ZdaPv(base);
+    return;
+  }
+  }
+#endif
+
+  ls_dec_ptrlog(base, info->size);
   if (info->refcnt <= 0) {
     delete_obj_info(info);
     ls_free(base, info);
@@ -599,97 +633,12 @@ static void free_common(char *base, ls_obj_info *info) {
   }
 }
 
-void *malloc_wrap(size_t size) {
-  char *ret = malloc(size);
-  DEBUG(if (!ret)
-          fprintf(stderr, "[lazy-san] malloc failed ??????\n"));
-  alloc_common(ret, size);
-  return(ret);
-}
-
-void *calloc_wrap(size_t num, size_t size) {
-  char *ret = calloc(num, size);
-  DEBUG(if (!ret)
-          fprintf(stderr, "[lazy-san] calloc failed ??????\n"));
-  alloc_common(ret, num*size);
-  return(ret);
-}
-
-void *realloc_wrap(void *ptr, size_t size) {
-  char *p = (char*)ptr;
-  ls_obj_info *info, *newinfo;
-  char *ret;
-
-  if (p==NULL)
-    return malloc(size);
-
-  info = get_obj_info(p);
-
-  /* NOTE: realloc should be modified not to free old ptr */
-  ret = realloc(ptr, size);
-  if (ret != ptr) {
-    newinfo = alloc_common(ret, size);
-    ls_copy_ptrlog(ret, ptr, info->size);
-    free_common(p, info);
+static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size) {
+  ls_obj_info *info = get_obj_info(old_ptr);
+  if (old_ptr != new_ptr) {
+    ls_copy_ptrlog(new_ptr, old_ptr, info->size);
+    free_common(old_ptr, 0);
   } else {
     info->size = size;
   }
-
-  return(ret);
 }
-
-void free_wrap(void *ptr) {
-  ls_obj_info *info;
-
-  if (ptr==NULL)
-    return;
-
-  info = get_obj_info(ptr);
-  ls_dec_ptrlog(ptr, info->size);
-  free_common(ptr, info);
-}
-
-#ifdef CPLUSPLUS
-
-void *_Znwm_wrap(size_t size) {
-  char *ret = _Znwm(size);
-  DEBUG(if (!ret)
-          fprintf(stderr, "[lazy-san] new failed ??????\n"));
-  alloc_common(ret, size);
-  return(ret);
-}
-
-void *_Znam_wrap(size_t size) {
-  char *ret = _Znam(size);
-  DEBUG(if (!ret)
-          fprintf(stderr, "[lazy-san] new[] failed ??????\n"));
-  alloc_common(ret, size);
-  return(ret);
-}
-
-void _ZdlPv_wrap(void *ptr) {
-  ls_obj_info *info;
-
-  if (ptr==NULL)
-    return;
-
-  info = get_obj_info(ptr);
-  ls_dec_ptrlog(ptr, info->size);
-  info->flags |= LS_INFO_USE_ZDLPV;
-  free_common(ptr, info);
-}
-
-void _ZdaPv_wrap(void *ptr) {
-  ls_obj_info *info;
-
-  if (ptr==NULL)
-    return;
-
-  info = get_obj_info(ptr);
-  if (!info) { _ZdaPv(ptr); return; } /* alloc'ed with new[0] */
-  ls_dec_ptrlog(ptr, info->size);
-  info->flags |= LS_INFO_USE_ZDAPV;
-  free_common(ptr, info);
-}
-
-#endif
