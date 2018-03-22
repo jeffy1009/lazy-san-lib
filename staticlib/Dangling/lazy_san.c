@@ -9,11 +9,7 @@
 #include "lsan_common.h"
 #include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
 
-#ifdef USE_RBTREE
-#include "red_black_tree.h"
-#else
 #include "metadata.h"
-#endif
 
 #ifdef DEBUG_LS
 #define DEBUG(x) do { x; } while (0)
@@ -53,27 +49,6 @@ void _ZdaPv(void *);
 static void alloc_common(char *base, unsigned long size);
 static void free_common(char *base, unsigned long source);
 static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size);
-
-#ifdef USE_RBTREE
-
-rb_red_blk_tree *rb_root = NULL;
-
-static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
-  return &RBTreeInsert(rb_root, base, size)->info;
-}
-
-static ls_obj_info *get_obj_info(char *p) {
-  rb_red_blk_node *n = RBExactQuery(rb_root, p);
-  if (n)
-    return &n->info;
-  return NULL;
-}
-
-static void delete_obj_info(ls_obj_info *info) {
-  RBDelete(rb_root, RBExactQuery(rb_root, info->base));
-}
-
-#else /* !USE_RBTREE */
 
 #define LS_META_SPACE_MAX_SIZE 0x08000000 /* 128MB */
 
@@ -119,8 +94,6 @@ static void delete_obj_info(ls_obj_info *info) {
   --num_obj_info;
 }
 
-#endif
-
 #ifdef DEBUG_LS
 static unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
 static unsigned long num_ptrs = 0;
@@ -164,7 +137,6 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   fprintf(stderr, "[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n",
          (unsigned long)global_ptrlog);
 
-#ifndef USE_RBTREE
   ls_meta_space = sys_mmap((void*)GLOBAL_PTRLOG_END, LS_META_SPACE_MAX_SIZE,
                            PROT_READ | PROT_WRITE,
                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
@@ -176,9 +148,6 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   }
   fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space);
-#else
-  rb_root = RBTreeCreate();
-#endif
 
   metalloc_malloc_posthook = alloc_common;
   metalloc_realloc_posthook = realloc_hook;
