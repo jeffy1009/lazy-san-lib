@@ -9,41 +9,31 @@ CFLAGS += -O3
 # LS_DEBUG=y # insert debugging code
 
 EXE=$(OBJDIR)/libmetadata.a
-EXE2=$(OBJDIR)/libmetadata_cpp.a
 
-SRCS_COMMON   := compat.c Dangling/lazy_san.c
-SRCS := $(SRCS_COMMON) metaget.c metaset.c
+SRCS   := compat.c  metaget.c metaset.c Dangling/lazy_san.c
 
 OBJS    := $(patsubst %.c,$(OBJDIR)/%.c.o,$(SRCS))
-OBJS2    := $(patsubst %.c,$(OBJDIR)/%.cpp.o,$(SRCS))
 DEPS    := $(OBJS:.o=.d)
 
 ifdef LS_DEBUG
 CFLAGS += -DDEBUG_LS
 endif
 
-all: directories $(EXE) $(EXE2)
+all: directories $(EXE)
 
 clean:
-	rm -f $(OBJS) $(OBJS2)
+	rm -f $(OBJS)
 	rm -f $(DEPS)
-	rm -f $(EXE) $(EXE2)
+	rm -f $(EXE)
 
 $(EXE): $(OBJS) directories
 	llvm-ar crv $@ $(OBJS)
-	llvm-ranlib $@
-
-$(EXE2): $(OBJS2) directories
-	llvm-ar crv $@ $(OBJS2)
 	llvm-ranlib $@
 
 -include $(DEPS)
 
 $(OBJDIR)/%.c.o: %.c directories
 	$(CC) $(INCLUDES) $(CFLAGS) -MMD -o $@ $< 
-
-$(OBJDIR)/%.cpp.o: %.c directories
-	$(CC) $(INCLUDES) $(CFLAGS) -MMD -o $@ $< -DCPLUSPLUS
 
 directories:
 	mkdir -p $(OBJDIR)

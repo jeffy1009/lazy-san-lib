@@ -41,10 +41,8 @@ static void ls_inc_ptrlog(char *d, char *s, unsigned long size, int setbit);
 static void ls_dec_ptrlog_int(char *p, char *end, int clearbit);
 void ls_dec_ptrlog(char *p, unsigned long size);
 
-#ifdef CPLUSPLUS
 void _ZdlPv(void *);
 void _ZdaPv(void *);
-#endif
 
 static void alloc_common(char *base, unsigned long size);
 static void free_common(char *base, unsigned long source);
@@ -161,12 +159,6 @@ __attribute__((section(".preinit_array"),
 /**  Refcnt modification  ****/
 /*****************************/
 
-#ifndef CPLUSPLUS
-static inline void ls_free(char *p, ls_obj_info *info) {
-  free_flag = 1;
-  free(p);
-}
-#else
 static inline void ls_free(char *p, ls_obj_info *info) {
   free_flag = 1;
   switch (info->flags & LS_INFO_USE_MASK) {
@@ -175,7 +167,6 @@ static inline void ls_free(char *p, ls_obj_info *info) {
   case LS_INFO_USE_ZDAPV: _ZdaPv(p); break;
   }
 }
-#endif
 
 /* p - written pointer value
    dest - store destination
@@ -573,7 +564,6 @@ static void free_common(char *base, unsigned long source) {
   DEBUG(if (info->flags & LS_INFO_FREED)
           fprintf(stderr, "[lazy-san] double free??????\n"));
 
-#ifdef CPLUSPLUS
   switch (source) {
   case 1: {
     info->flags |= LS_INFO_USE_ZDLPV;
@@ -590,7 +580,6 @@ static void free_common(char *base, unsigned long source) {
     return;
   }
   }
-#endif
 
   ls_dec_ptrlog(base, info->size);
   if (info->refcnt <= 0) {

@@ -7,11 +7,9 @@
 #define REFCNT_INIT 0
 
 #define LS_INFO_FREED 		0x1
-#ifdef CPLUSPLUS
 #define LS_INFO_USE_ZDLPV	0x2
 #define LS_INFO_USE_ZDAPV	0x6
 #define LS_INFO_USE_MASK	0x6
-#endif
 #define LS_INFO_RCBELOWZERO 	0x10000
 
 typedef struct ls_obj_info_t {
