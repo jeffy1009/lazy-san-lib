@@ -23,5 +23,4 @@ unsigned long metaset_##size (unsigned long ptrInt, \
     return entry;                                   \
 }
 
-CREATE_METASET(4)
 CREATE_METASET(8)

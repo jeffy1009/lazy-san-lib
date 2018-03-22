@@ -24,5 +24,4 @@ meta##size metaget_##size (unsigned long ptrInt) {  \
     return *(meta##size *)metaptr;                  \
 }
 
-CREATE_METAGET(4)
 CREATE_METAGET(8)

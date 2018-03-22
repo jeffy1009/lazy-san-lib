@@ -20,10 +20,14 @@
 #define GLOBAL_PTRLOG_BASE 0x408000000000  /* next to metalloc pagetable */
 #define GLOBAL_PTRLOG_SIZE 0x020000000000  /* 2TB */
 #define GLOBAL_PTRLOG_END (GLOBAL_PTRLOG_BASE+GLOBAL_PTRLOG_SIZE)
+#define LS_META_SPACE_BASE GLOBAL_PTRLOG_END
+#define LS_META_SPACE_MAX_SIZE 0x08000000 /* 128MB */
 /* TODO: get exact heap end instead of this fixed value */
 #define HEAP_END_ADDR 0x000400000000 /* 16GB */
 
-static unsigned long *global_ptrlog;
+static unsigned long * const global_ptrlog = (unsigned long *)GLOBAL_PTRLOG_BASE;
+static ls_obj_info * const ls_meta_space = (ls_obj_info *)LS_META_SPACE_BASE;
+static unsigned long num_obj_info = 0;
 
 __attribute__ ((visibility("hidden"))) extern char _end;
 
@@ -48,15 +52,10 @@ static void alloc_common(char *base, unsigned long size);
 static void free_common(char *base, unsigned long source);
 static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size);
 
-#define LS_META_SPACE_MAX_SIZE 0x08000000 /* 128MB */
-
-static ls_obj_info *ls_meta_space;
-static unsigned long cur_meta_idx = 0;
-static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
-static unsigned long num_obj_info = 0;
-static const unsigned long meta_idx_max = LS_META_SPACE_MAX_SIZE/sizeof(ls_obj_info);
-
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
+  static unsigned long cur_meta_idx = 0;
+  static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
+  static const unsigned long meta_idx_max = LS_META_SPACE_MAX_SIZE/sizeof(ls_obj_info);
   ls_obj_info *cur;
   do {
     cur = ls_meta_space + cur_meta_idx;
@@ -67,8 +66,8 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   ++num_obj_info;
   /* keep meta space large enough to have sufficient vacant slots */
   if ((num_obj_info+num_obj_info/4) > meta_idx_limit) {
-    DEBUG(if ((num_obj_info+num_obj_info/4) > meta_idx_max)
-            fprintf(stderr, "[lazy-san] num obj info reached the limit!\n"));
+    if ((num_obj_info+num_obj_info/4) > meta_idx_max)
+      fprintf(stderr, "[lazy-san] num obj info reached the limit!\n");
     meta_idx_limit *= 2;
   }
   cur->base = base;
@@ -79,7 +78,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
 }
 
 static ls_obj_info *get_obj_info(char *p) {
-  if (p > &_end && p < (char*)HEAP_END_ADDR)
+  if (p < (char*)HEAP_END_ADDR)
     return (ls_obj_info*)metaget_8((unsigned long)p);
   return NULL;
 }
@@ -123,29 +122,29 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
 
   /* sys_mmap from gperftools/src/base/linux_syscall_support.h
      gives much better performance and memory usage */
-  global_ptrlog = sys_mmap((void*)GLOBAL_PTRLOG_BASE, GLOBAL_PTRLOG_SIZE,
-                           PROT_READ | PROT_WRITE,
-                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
-                           -1, 0);
-  if (global_ptrlog == (void*)-1) {
+  unsigned long *global_ptrlog_tmp
+    = sys_mmap((void*)GLOBAL_PTRLOG_BASE, GLOBAL_PTRLOG_SIZE,
+               PROT_READ | PROT_WRITE,
+               MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0);
+  if (global_ptrlog_tmp == (void*)-1) {
      /* strangely, perror() segfaults */
     fprintf(stderr, "[lazy-san] global_ptrlog mmap failed: errno %d\n", errno);
     exit(0);
   }
   fprintf(stderr, "[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n",
-         (unsigned long)global_ptrlog);
+         (unsigned long)global_ptrlog_tmp);
 
-  ls_meta_space = sys_mmap((void*)GLOBAL_PTRLOG_END, LS_META_SPACE_MAX_SIZE,
-                           PROT_READ | PROT_WRITE,
-                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE,
-                           -1, 0);
-  if (ls_meta_space == (void*)-1) {
+  ls_obj_info *ls_meta_space_tmp =
+    sys_mmap((void*)GLOBAL_PTRLOG_END, LS_META_SPACE_MAX_SIZE,
+             PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0);
+  if (ls_meta_space_tmp == (void*)-1) {
      /* strangely, perror() segfaults */
     fprintf(stderr, "[lazy-san] ls_meta_space mmap failed: errno %d\n", errno);
     exit(0);
   }
   fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
-         (unsigned long)ls_meta_space);
+         (unsigned long)ls_meta_space_tmp);
 
   metalloc_malloc_posthook = alloc_common;
   metalloc_realloc_posthook = realloc_hook;
