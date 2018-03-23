@@ -9,8 +9,6 @@
 #include "lsan_common.h"
 #include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
 
-#include "metadata.h"
-
 #ifdef DEBUG_LS
 #define DEBUG(x) do { x; } while (0)
 #else
@@ -51,6 +49,36 @@ void _ZdaPv(void *);
 static void alloc_common(char *base, unsigned long size);
 static void free_common(char *base, unsigned long source);
 static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size);
+
+unsigned long metaset_8(unsigned long ptrInt,
+                        unsigned long count, unsigned long value) {
+  unsigned long page = ptrInt / METALLOC_PAGESIZE;
+  unsigned long entry = pageTable[page];
+  unsigned long alignment = entry & 0xFF;
+  char *metabase = (char*)(entry >> 8);
+  unsigned long pageOffset = ptrInt - (page * METALLOC_PAGESIZE);
+  char *metaptr = metabase + ((pageOffset >> alignment) * 8);
+  unsigned long metasize = ((count + (1 << (alignment)) - 1) >> alignment);
+  for (unsigned long i = 0; i < metasize; ++i) {
+    *(unsigned long *)metaptr  = value;
+    metaptr += 8;
+  }
+  return entry;
+}
+
+#define unlikely(x)     __builtin_expect((x),0)
+
+unsigned long metaget_8(unsigned long ptrInt) {
+  unsigned long page = ptrInt / METALLOC_PAGESIZE;
+  unsigned long entry = pageTable[page];
+  if (unlikely(entry == 0))
+    return 0;
+  unsigned long alignment = entry & 0xFF;
+  char *metabase = (char*)(entry >> 8);
+  unsigned long pageOffset = ptrInt - (page * METALLOC_PAGESIZE);
+  char *metaptr = metabase + ((pageOffset >> alignment) * 8);
+  return *(unsigned long *)metaptr;
+}
 
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   static unsigned long cur_meta_idx = 0;

@@ -2,11 +2,6 @@
 #include <stdlib.h>
 #include <metapagetable.h>
 
-typedef uint8_t meta1;
-typedef uint16_t meta2;
-typedef uint32_t meta4;
-typedef uint64_t meta8;
-
 static void set_metadata(void *ptr, void *deepmetadata, unsigned long size, unsigned char value) {
   if (!FLAGS_METALLOC_FIXEDCOMPRESSION) {
       unsigned long page = (unsigned long)ptr / METALLOC_PAGESIZE;
