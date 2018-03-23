@@ -35,6 +35,8 @@ __attribute__ ((visibility("hidden"))) extern char _end;
 
 #ifdef DEBUG_LS
 rb_red_blk_tree *rb_root = NULL;
+rb_red_blk_tree *dangling_ptrs = NULL;
+char *dbg_ptr = NULL;
 #endif
 
 /* prototypes */
@@ -152,10 +154,26 @@ static int compare_base(const rb_red_blk_node *a, const char *b) {
 
 static void print_obj_info(const rb_red_blk_node *a) {
   ls_obj_info *a_info = (ls_obj_info*)a->info;
-    fprintf(stderr, "[0x%lx, 0x%lx]", (long)a_info->base, (long)(a_info->base + a_info->size));
-    fprintf(stderr, "(0x%lx, %ld)#%d%s\n",
-           a_info->size, a_info->size, a_info->refcnt,
-           (a_info->flags & LS_INFO_FREED) ? "F" : "");
+  fprintf(stderr, "[0x%lx, 0x%lx]", (long)a_info->base, (long)(a_info->base + a_info->size));
+  fprintf(stderr, "(0x%lx, %ld)#%d%s\n",
+          a_info->size, a_info->size, a_info->refcnt,
+          (a_info->flags & LS_INFO_FREED) ? "F" : "");
+}
+
+static int compare_dangling(const rb_red_blk_node *a, const rb_red_blk_node *b) {
+  if( a->info > b->info) return(1);
+  if( a->info < b->info) return(-1);
+  return(0);
+}
+
+static int compare_dangling_ptr(const rb_red_blk_node *a, const char *b) {
+  if( a->info > (void*)b) return(1);
+  if( a->info < (void*)b) return(-1);
+  return(0);
+}
+
+static void print_dangling(const rb_red_blk_node *a) {
+  fprintf(stderr, "[0x%lx]=0x%lx\n", (long)a->info, *(long*)a->info);
 }
 #endif
 
@@ -219,6 +237,11 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   rb_root->RBTreeCompare = compare_range;
   rb_root->RBTreeCompareBase = compare_base;
   rb_root->RBPrintNode = print_obj_info;
+
+  dangling_ptrs = RBTreeCreate();
+  dangling_ptrs->RBTreeCompare = compare_dangling;
+  dangling_ptrs->RBTreeCompareBase = compare_dangling_ptr;
+  dangling_ptrs->RBPrintNode = print_dangling;
 #endif
 
   metalloc_malloc_posthook = alloc_common;
@@ -257,6 +280,7 @@ static void ls_inc_refcnt(char *p, char *dest, int setbit) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
             fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
     atomic_fetch_add((atomic_int*)&info->refcnt, 1);
+    DEBUG(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
 
     if (setbit) {
       /* mark pointer type field */
@@ -278,6 +302,7 @@ static void ls_dec_refcnt(char *p, char *dummy) {
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
     atomic_fetch_sub((atomic_int*)&info->refcnt, 1);
+    DEBUG(if (dbg_ptr==info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = info->base;
@@ -319,6 +344,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
     });
 
   atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
+  DEBUG(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
   if (old_info->refcnt<=0) {
     if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
       char *tmp = old_info->base;
@@ -364,10 +390,12 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       DEBUG(same_ldst_cnt++);
       return;
     }
-    if (!info)
+    if (!info) {
       atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
-    else
+    } else {
       atomic_fetch_add((atomic_int*)&info->refcnt, 1);
+      DEBUG(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+    }
 
     if (!old_info)
       return;
@@ -378,6 +406,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       });
 
     atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
+    DEBUG(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
     if (old_info->refcnt<=0) {
       if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = old_info->base;
@@ -391,6 +420,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   } else if (info) {
     atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
     atomic_fetch_add((atomic_int*)&info->refcnt, 1);
+    DEBUG(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
   }
 }
 
