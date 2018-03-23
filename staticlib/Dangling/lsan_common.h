@@ -19,6 +19,7 @@ typedef struct ls_obj_info_t {
   int flags;
 } ls_obj_info;
 
+extern __thread bool malloc_flag;
 extern __thread bool free_flag;
 
 #endif /* LSAN_COMMON_H */

@@ -206,6 +206,7 @@ DEFINE_int64(tcmalloc_large_alloc_report_threshold,
              "logging unless the flag is overridden.  Set to 0 to "
              "disable reporting entirely.");
 
+__thread bool malloc_flag;
 __thread bool free_flag;
 
 // We already declared these functions in tcmalloc.h, but we have to
@@ -1224,7 +1225,9 @@ static ALWAYS_INLINE void* reset_metadata(ThreadCache* heap, void *ptr, unsigned
   }
   METALLOC_ALLOC_HOOK(ptr, deepmetadata, content_size, allocation_size);
 
-  if (metalloc_malloc_posthook)
+  if (malloc_flag)
+    malloc_flag = 0;
+  else if (metalloc_malloc_posthook)
     metalloc_malloc_posthook((char*)ptr, allocation_size);
 
   return ptr;

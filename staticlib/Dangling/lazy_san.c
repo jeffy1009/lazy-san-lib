@@ -10,6 +10,10 @@
 #include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
 
 #ifdef DEBUG_LS
+#include "red_black_tree.h"
+#endif
+
+#ifdef DEBUG_LS
 #define DEBUG(x) do { x; } while (0)
 #else
 #define DEBUG(x) do { ; } while (0)
@@ -29,8 +33,11 @@ static unsigned long num_obj_info = 0;
 
 __attribute__ ((visibility("hidden"))) extern char _end;
 
-/* prototypes */
+#ifdef DEBUG_LS
+rb_red_blk_tree *rb_root = NULL;
+#endif
 
+/* prototypes */
 static void ls_inc_refcnt(char *p, char *dest, int setbit);
 static void ls_dec_refcnt(char *p, char *dummy);
 void ls_incdec_refcnt_noinc(char *dest);
@@ -114,6 +121,7 @@ static ls_obj_info *get_obj_info(char *p) {
 size_t tc_malloc_size(void *);
 
 static void delete_obj_info(ls_obj_info *info) {
+  DEBUG(RBDelete(rb_root, RBExactQuery(rb_root, info->base)));
   metaset_8((unsigned long)info->base, tc_malloc_size(info->base), 0);
   info->base = 0;
   --num_obj_info;
@@ -173,6 +181,8 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   }
   fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space_tmp);
+
+  DEBUG(rb_root = RBTreeCreate());
 
   metalloc_malloc_posthook = alloc_common;
   metalloc_realloc_posthook = realloc_hook;
@@ -615,6 +625,7 @@ static void free_common(char *base, unsigned long source) {
   } else {
     info->flags |= LS_INFO_FREED;
     DEBUG(quarantine_size += info->size);
+    DEBUG(RBTreeInsert(rb_root, info->base, info->size));
   }
 }
 

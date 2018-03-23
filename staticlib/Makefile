@@ -10,7 +10,7 @@ CFLAGS += -O3
 
 EXE=$(OBJDIR)/libmetadata.a
 
-SRCS   := compat.c Dangling/lazy_san.c
+SRCS   := compat.c Dangling/lazy_san.c Dangling/red_black_tree.c
 
 OBJS    := $(patsubst %.c,$(OBJDIR)/%.c.o,$(SRCS))
 DEPS    := $(OBJS:.o=.d)
