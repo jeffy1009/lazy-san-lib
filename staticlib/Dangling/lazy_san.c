@@ -27,6 +27,10 @@
 /* TODO: get exact heap end instead of this fixed value */
 #define HEAP_END_ADDR 0x000400000000 /* 16GB */
 
+#ifdef DEBUG_LS
+#define RBTREE_INSERT_THRESHOLD 4096
+#endif
+
 static unsigned long * const global_ptrlog = (unsigned long *)GLOBAL_PTRLOG_BASE;
 static ls_obj_info * const ls_meta_space = (ls_obj_info *)LS_META_SPACE_BASE;
 static unsigned long num_obj_info = 0;
@@ -692,7 +696,8 @@ static void free_common(char *base, unsigned long source) {
   } else {
     info->flags |= LS_INFO_FREED;
     DEBUG(quarantine_size += info->size);
-    DEBUG(RBTreeInsert(rb_root, (void*)info));
+    DEBUG(if (info->size > RBTREE_INSERT_THRESHOLD)
+            RBTreeInsert(rb_root, (void*)info));
   }
 }
 
