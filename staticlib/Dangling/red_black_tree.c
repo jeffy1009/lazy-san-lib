@@ -13,25 +13,6 @@ static inline void ls_free(void *p) {
   free(p);
 }
 
-static int RBTreeCompare(const rb_red_blk_node *a, const rb_red_blk_node *b) {
-  if ((a->info->base <= b->info->base)
-      && (b->info->base <= (a->info->base + a->info->size))) {
-    if (!(((a->info->base + a->info->size) <= b->info->base)
-             || ((b->info->base + b->info->size) <= a->info->base)))
-      fprintf(stderr, "[lazy-san] existing entry with overlaping region!\n");
-    return 0;
-  }
-  if( a->info->base > b->info->base) return(1);
-  if( a->info->base < b->info->base) return(-1);
-  return(0);
-}
-
-static int RBTreeCompareBase(const rb_red_blk_node *a, const char *b) {
-  if( a->info->base > b) return(1);
-  if( a->info->base < b) return(-1);
-  return(0);
-}
-
 rb_red_blk_tree* RBTreeCreate() {
   rb_red_blk_tree* newTree;
   rb_red_blk_node* temp;
@@ -133,7 +114,7 @@ static void TreeInsertHelp(rb_red_blk_tree* tree, rb_red_blk_node* z) {
   x=tree->root->left;
   while( x != nil) {
     y=x;
-    if (1 == RBTreeCompare(x,z)) {
+    if (1 == tree->RBTreeCompare(x,z)) {
       x=x->left;
     } else {
       x=x->right;
@@ -141,7 +122,7 @@ static void TreeInsertHelp(rb_red_blk_tree* tree, rb_red_blk_node* z) {
   }
   z->parent=y;
   if ( (y == tree->root) ||
-       (1 == RBTreeCompare(y,z))) {
+       (1 == tree->RBTreeCompare(y,z))) {
     y->left=z;
   } else {
     y->right=z;
@@ -152,7 +133,7 @@ static void TreeInsertHelp(rb_red_blk_tree* tree, rb_red_blk_node* z) {
 #endif
 }
 
-rb_red_blk_node * RBTreeInsert(rb_red_blk_tree* tree, ls_obj_info *info) {
+rb_red_blk_node * RBTreeInsert(rb_red_blk_tree* tree, void *info) {
   rb_red_blk_node * y;
   rb_red_blk_node * x;
   rb_red_blk_node * newNode;
@@ -233,10 +214,7 @@ static void InorderTreePrint(rb_red_blk_tree* tree, rb_red_blk_node* x, int dept
     int i = depth;
     InorderTreePrint(tree,x->left,depth+1);
     while (i--) fprintf(stderr, " ");
-    fprintf(stderr, "[0x%lx, 0x%lx]", (long)x->info->base, (long)(x->info->base + x->info->size));
-    fprintf(stderr, "(0x%lx, %ld)#%d%s\n",
-           x->info->size, x->info->size, x->info->refcnt,
-           (x->info->flags & LS_INFO_FREED) ? "F" : "");
+    tree->RBPrintNode(x);
     InorderTreePrint(tree,x->right,depth+1);
   }
 }
@@ -266,7 +244,7 @@ rb_red_blk_node* RBExactQuery(rb_red_blk_tree* tree, char* p) {
   rb_red_blk_node* nil=tree->nil;
   int compVal;
   if (x == nil) return(0);
-  compVal=RBTreeCompareBase(x,p);
+  compVal=tree->RBTreeCompareBase(x,p);
   while(0 != compVal) {/*assignemnt*/
     if (1 == compVal) { /* x->key > q */
       x=x->left;
@@ -274,7 +252,7 @@ rb_red_blk_node* RBExactQuery(rb_red_blk_tree* tree, char* p) {
       x=x->right;
     }
     if ( x == nil) return(0);
-    compVal=RBTreeCompareBase(x,p);
+    compVal=tree->RBTreeCompareBase(x,p);
   }
   return(x);
 }

@@ -128,6 +128,38 @@ static void delete_obj_info(ls_obj_info *info) {
 }
 
 #ifdef DEBUG_LS
+static int compare_range(const rb_red_blk_node *a, const rb_red_blk_node *b) {
+  ls_obj_info *a_info = (ls_obj_info*)a->info;
+  ls_obj_info *b_info = (ls_obj_info*)b->info;
+  if ((a_info->base <= b_info->base)
+      && (b_info->base <= (a_info->base + a_info->size))) {
+    if (!(((a_info->base + a_info->size) <= b_info->base)
+             || ((b_info->base + b_info->size) <= a_info->base)))
+      fprintf(stderr, "[lazy-san] existing entry with overlaping region!\n");
+    return 0;
+  }
+  if( a_info->base > b_info->base) return(1);
+  if( a_info->base < b_info->base) return(-1);
+  return(0);
+}
+
+static int compare_base(const rb_red_blk_node *a, const char *b) {
+  ls_obj_info *a_info = (ls_obj_info*)a->info;
+  if( a_info->base > b) return(1);
+  if( a_info->base < b) return(-1);
+  return(0);
+}
+
+static void print_obj_info(const rb_red_blk_node *a) {
+  ls_obj_info *a_info = (ls_obj_info*)a->info;
+    fprintf(stderr, "[0x%lx, 0x%lx]", (long)a_info->base, (long)(a_info->base + a_info->size));
+    fprintf(stderr, "(0x%lx, %ld)#%d%s\n",
+           a_info->size, a_info->size, a_info->refcnt,
+           (a_info->flags & LS_INFO_FREED) ? "F" : "");
+}
+#endif
+
+#ifdef DEBUG_LS
 static unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
 static unsigned long num_ptrs = 0;
 static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
@@ -182,7 +214,12 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space_tmp);
 
-  DEBUG(rb_root = RBTreeCreate());
+#ifdef DEBUG_LS
+  rb_root = RBTreeCreate();
+  rb_root->RBTreeCompare = compare_range;
+  rb_root->RBTreeCompareBase = compare_base;
+  rb_root->RBPrintNode = print_obj_info;
+#endif
 
   metalloc_malloc_posthook = alloc_common;
   metalloc_realloc_posthook = realloc_hook;
@@ -625,7 +662,7 @@ static void free_common(char *base, unsigned long source) {
   } else {
     info->flags |= LS_INFO_FREED;
     DEBUG(quarantine_size += info->size);
-    DEBUG(RBTreeInsert(rb_root, info));
+    DEBUG(RBTreeInsert(rb_root, (void*)info));
   }
 }
 

@@ -8,7 +8,7 @@
 /* #define DEBUG_ASSERT 1 */
 
 typedef struct rb_red_blk_node {
-  ls_obj_info *info;
+  void *info;
   int red; /* if red=0 then the node is black */
   struct rb_red_blk_node* left;
   struct rb_red_blk_node* right;
@@ -25,10 +25,14 @@ typedef struct rb_red_blk_tree {
   /*  that the root and nil nodes do not require special cases in the code */
   rb_red_blk_node* root;
   rb_red_blk_node* nil;
+
+  int (*RBTreeCompare)(const rb_red_blk_node *a, const rb_red_blk_node *b);
+  int (*RBTreeCompareBase)(const rb_red_blk_node *a, const char *b);
+  void (*RBPrintNode)(const rb_red_blk_node *a);
 } rb_red_blk_tree;
 
 rb_red_blk_tree* RBTreeCreate();
-rb_red_blk_node * RBTreeInsert(rb_red_blk_tree*, ls_obj_info*);
+rb_red_blk_node * RBTreeInsert(rb_red_blk_tree*, void*);
 void RBTreePrint(rb_red_blk_tree*);
 void RBDelete(rb_red_blk_tree* , rb_red_blk_node* );
 void RBTreeDestroy(rb_red_blk_tree*);
