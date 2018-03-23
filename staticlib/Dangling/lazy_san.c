@@ -625,7 +625,7 @@ static void free_common(char *base, unsigned long source) {
   } else {
     info->flags |= LS_INFO_FREED;
     DEBUG(quarantine_size += info->size);
-    DEBUG(RBTreeInsert(rb_root, info->base, info->size));
+    DEBUG(RBTreeInsert(rb_root, info));
   }
 }
 

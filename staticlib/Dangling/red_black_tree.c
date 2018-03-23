@@ -14,21 +14,21 @@ static inline void ls_free(void *p) {
 }
 
 static int RBTreeCompare(const rb_red_blk_node *a, const rb_red_blk_node *b) {
-  if ((a->info.base <= b->info.base)
-      && (b->info.base <= (a->info.base + a->info.size))) {
-    if (!(((a->info.base + a->info.size) <= b->info.base)
-             || ((b->info.base + b->info.size) <= a->info.base)))
+  if ((a->info->base <= b->info->base)
+      && (b->info->base <= (a->info->base + a->info->size))) {
+    if (!(((a->info->base + a->info->size) <= b->info->base)
+             || ((b->info->base + b->info->size) <= a->info->base)))
       fprintf(stderr, "[lazy-san] existing entry with overlaping region!\n");
     return 0;
   }
-  if( a->info.base > b->info.base) return(1);
-  if( a->info.base < b->info.base) return(-1);
+  if( a->info->base > b->info->base) return(1);
+  if( a->info->base < b->info->base) return(-1);
   return(0);
 }
 
 static int RBTreeCompareBase(const rb_red_blk_node *a, const char *b) {
-  if( a->info.base > b) return(1);
-  if( a->info.base < b) return(-1);
+  if( a->info->base > b) return(1);
+  if( a->info->base < b) return(-1);
   return(0);
 }
 
@@ -152,17 +152,13 @@ static void TreeInsertHelp(rb_red_blk_tree* tree, rb_red_blk_node* z) {
 #endif
 }
 
-rb_red_blk_node * RBTreeInsert(rb_red_blk_tree* tree, char* base,
-                               unsigned long size) {
+rb_red_blk_node * RBTreeInsert(rb_red_blk_tree* tree, ls_obj_info *info) {
   rb_red_blk_node * y;
   rb_red_blk_node * x;
   rb_red_blk_node * newNode;
 
   x=(rb_red_blk_node*) ls_malloc(sizeof(rb_red_blk_node));
-  x->info.base=base;
-  x->info.size=size;
-  x->info.refcnt=REFCNT_INIT;
-  x->info.flags=0;
+  x->info=info;
 
   TreeInsertHelp(tree,x);
   newNode=x;
@@ -237,10 +233,10 @@ static void InorderTreePrint(rb_red_blk_tree* tree, rb_red_blk_node* x, int dept
     int i = depth;
     InorderTreePrint(tree,x->left,depth+1);
     while (i--) fprintf(stderr, " ");
-    fprintf(stderr, "[0x%lx, 0x%lx]", (long)x->info.base, (long)(x->info.base + x->info.size));
+    fprintf(stderr, "[0x%lx, 0x%lx]", (long)x->info->base, (long)(x->info->base + x->info->size));
     fprintf(stderr, "(0x%lx, %ld)#%d%s\n",
-           x->info.size, x->info.size, x->info.refcnt,
-           (x->info.flags & LS_INFO_FREED) ? "F" : "");
+           x->info->size, x->info->size, x->info->refcnt,
+           (x->info->flags & LS_INFO_FREED) ? "F" : "");
     InorderTreePrint(tree,x->right,depth+1);
   }
 }
