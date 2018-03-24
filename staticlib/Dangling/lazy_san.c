@@ -19,6 +19,12 @@
 #define DEBUG(x) do { ; } while (0)
 #endif
 
+#ifdef DEBUG_LS_HIGH
+#define DEBUG_HIGH(x) do { x; } while (0)
+#else
+#define DEBUG_HIGH(x) do { ; } while (0)
+#endif
+
 #define GLOBAL_PTRLOG_BASE 0x408000000000  /* next to metalloc pagetable */
 #define GLOBAL_PTRLOG_SIZE 0x020000000000  /* 2TB */
 #define GLOBAL_PTRLOG_END (GLOBAL_PTRLOG_BASE+GLOBAL_PTRLOG_SIZE)
@@ -27,7 +33,7 @@
 /* TODO: get exact heap end instead of this fixed value */
 #define HEAP_END_ADDR 0x000400000000 /* 16GB */
 
-#ifdef DEBUG_LS
+#ifdef DEBUG_LS_HIGH
 #define RBTREE_INSERT_THRESHOLD 4096
 #endif
 
@@ -37,7 +43,7 @@ static unsigned long num_obj_info = 0;
 
 __attribute__ ((visibility("hidden"))) extern char _end;
 
-#ifdef DEBUG_LS
+#ifdef DEBUG_LS_HIGH
 rb_red_blk_tree *rb_root = NULL;
 rb_red_blk_tree *dangling_ptrs = NULL;
 char *dbg_ptr = NULL;
@@ -127,13 +133,13 @@ static ls_obj_info *get_obj_info(char *p) {
 size_t tc_malloc_size(void *);
 
 static void delete_obj_info(ls_obj_info *info) {
-  DEBUG(RBDelete(rb_root, RBExactQuery(rb_root, info->base)));
+  DEBUG_HIGH(RBDelete(rb_root, RBExactQuery(rb_root, info->base)));
   metaset_8((unsigned long)info->base, tc_malloc_size(info->base), 0);
   info->base = 0;
   --num_obj_info;
 }
 
-#ifdef DEBUG_LS
+#ifdef DEBUG_LS_HIGH
 static int compare_range(const rb_red_blk_node *a, const rb_red_blk_node *b) {
   ls_obj_info *a_info = (ls_obj_info*)a->info;
   ls_obj_info *b_info = (ls_obj_info*)b->info;
@@ -236,7 +242,7 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space_tmp);
 
-#ifdef DEBUG_LS
+#ifdef DEBUG_LS_HIGH
   rb_root = RBTreeCreate();
   rb_root->RBTreeCompare = compare_range;
   rb_root->RBTreeCompareBase = compare_base;
@@ -284,7 +290,7 @@ static void ls_inc_refcnt(char *p, char *dest, int setbit) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
             fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
     atomic_fetch_add((atomic_int*)&info->refcnt, 1);
-    DEBUG(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+    DEBUG_HIGH(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
 
     if (setbit) {
       /* mark pointer type field */
@@ -306,7 +312,7 @@ static void ls_dec_refcnt(char *p, char *dummy) {
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
     atomic_fetch_sub((atomic_int*)&info->refcnt, 1);
-    DEBUG(if (dbg_ptr==info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
+    DEBUG_HIGH(if (dbg_ptr==info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = info->base;
@@ -348,7 +354,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
     });
 
   atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
-  DEBUG(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
+  DEBUG_HIGH(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
   if (old_info->refcnt<=0) {
     if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
       char *tmp = old_info->base;
@@ -398,7 +404,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
     } else {
       atomic_fetch_add((atomic_int*)&info->refcnt, 1);
-      DEBUG(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+      DEBUG_HIGH(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
     }
 
     if (!old_info)
@@ -410,7 +416,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       });
 
     atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
-    DEBUG(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
+    DEBUG_HIGH(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
     if (old_info->refcnt<=0) {
       if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = old_info->base;
@@ -424,7 +430,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   } else if (info) {
     atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
     atomic_fetch_add((atomic_int*)&info->refcnt, 1);
-    DEBUG(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+    DEBUG_HIGH(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
   }
 }
 
@@ -690,14 +696,15 @@ static void free_common(char *base, unsigned long source) {
   }
 
   ls_dec_ptrlog(base, info->size);
+  DEBUG_HIGH(memset(base, 0, info->size));
   if (info->refcnt <= 0) {
     delete_obj_info(info);
     ls_free(base, info);
   } else {
     info->flags |= LS_INFO_FREED;
     DEBUG(quarantine_size += info->size);
-    DEBUG(if (info->size > RBTREE_INSERT_THRESHOLD)
-            RBTreeInsert(rb_root, (void*)info));
+    DEBUG_HIGH(if (info->size > RBTREE_INSERT_THRESHOLD)
+                 RBTreeInsert(rb_root, (void*)info));
   }
 }
 
