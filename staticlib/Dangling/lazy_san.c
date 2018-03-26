@@ -47,6 +47,7 @@ __attribute__ ((visibility("hidden"))) extern char _end;
 rb_red_blk_tree *rb_root = NULL;
 rb_red_blk_tree *dangling_ptrs = NULL;
 char *dbg_ptr = NULL;
+static int dbg_on = 0;
 #endif
 
 /* prototypes */
@@ -290,7 +291,7 @@ static void ls_inc_refcnt(char *p, char *dest, int setbit) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
             fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
     atomic_fetch_add((atomic_int*)&info->refcnt, 1);
-    DEBUG_HIGH(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+    DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
 
     if (setbit) {
       /* mark pointer type field */
@@ -312,7 +313,8 @@ static void ls_dec_refcnt(char *p, char *dummy) {
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
     atomic_fetch_sub((atomic_int*)&info->refcnt, 1);
-    DEBUG_HIGH(if (dbg_ptr==info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
+    DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base)
+                 RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = info->base;
@@ -354,7 +356,8 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
     });
 
   atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
-  DEBUG_HIGH(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
+  DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
+               RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
   if (old_info->refcnt<=0) {
     if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
       char *tmp = old_info->base;
@@ -404,7 +407,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
     } else {
       atomic_fetch_add((atomic_int*)&info->refcnt, 1);
-      DEBUG_HIGH(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+      DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
     }
 
     if (!old_info)
@@ -416,7 +419,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       });
 
     atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
-    DEBUG_HIGH(if (dbg_ptr==old_info->base) RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
+    DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
+                 RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
     if (old_info->refcnt<=0) {
       if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
         char *tmp = old_info->base;
@@ -430,7 +434,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   } else if (info) {
     atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
     atomic_fetch_add((atomic_int*)&info->refcnt, 1);
-    DEBUG_HIGH(if (dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+    DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
   }
 }
 
@@ -666,6 +670,12 @@ static void alloc_common(char *base, unsigned long size) {
 #endif
 
   alloc_obj_info(base, size);
+
+#ifdef DEBUG_LS_HIGH
+  /* stop point for fast debugging */
+  if (dbg_ptr==base)
+    dbg_on = 0;
+#endif
 }
 
 static void free_common(char *base, unsigned long source) {
