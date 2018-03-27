@@ -44,9 +44,9 @@ static unsigned long num_obj_info = 0;
 __attribute__ ((visibility("hidden"))) extern char _end;
 
 #ifdef DEBUG_LS_HIGH
-rb_red_blk_tree *rb_root = NULL;
-rb_red_blk_tree *dangling_ptrs = NULL;
-char *dbg_ptr = NULL;
+static rb_red_blk_tree *rb_root = NULL;
+static rb_red_blk_tree *dangling_ptrs = NULL;
+static char *dbg_ptr = NULL;
 static int dbg_on = 0;
 #endif
 
@@ -70,8 +70,8 @@ static void alloc_common(char *base, unsigned long size);
 static void free_common(char *base, unsigned long source);
 static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size);
 
-unsigned long metaset_8(unsigned long ptrInt,
-                        unsigned long count, unsigned long value) {
+static unsigned long metaset_8(unsigned long ptrInt,
+                               unsigned long count, unsigned long value) {
   unsigned long page = ptrInt / METALLOC_PAGESIZE;
   unsigned long entry = pageTable[page];
   unsigned long alignment = entry & 0xFF;
@@ -88,7 +88,7 @@ unsigned long metaset_8(unsigned long ptrInt,
 
 #define unlikely(x)     __builtin_expect((x),0)
 
-unsigned long metaget_8(unsigned long ptrInt) {
+static unsigned long metaget_8(unsigned long ptrInt) {
   unsigned long page = ptrInt / METALLOC_PAGESIZE;
   unsigned long entry = pageTable[page];
   if (unlikely(entry == 0))
