@@ -727,3 +727,17 @@ static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size) {
     info->size = size;
   }
 }
+
+void ls_check_dangling(char *p) {
+  ls_obj_info *info = get_obj_info(p);
+  if (!info) {
+    fprintf(stderr, "[lazy-san] access to freed memory location @ 0x%lx",
+            (unsigned long)p);
+    abort();
+  }
+}
+
+void ls_check_dangling_range(char *pstart, char *pend) {
+  while (pstart < pend)
+    ls_check_dangling(pstart++);
+}
