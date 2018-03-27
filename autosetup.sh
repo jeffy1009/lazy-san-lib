@@ -257,6 +257,7 @@ for instance in $INSTANCES; do
 		fi
 	done
 done
+exit 0
 
 # Build targets
 for instance in $INSTANCES; do
