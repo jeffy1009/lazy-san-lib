@@ -43,6 +43,8 @@ static unsigned long * const global_ptrlog = (unsigned long *)GLOBAL_PTRLOG_BASE
 static ls_obj_info * const ls_meta_space = (ls_obj_info *)LS_META_SPACE_BASE;
 static unsigned long num_obj_info = 0;
 
+static int ls_disable = 0;
+
 __attribute__ ((visibility("hidden"))) extern char _end;
 
 #ifdef DEBUG_LS_HIGH
@@ -233,7 +235,7 @@ void atexit_hook() {
 }
 #endif
 
-void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
+void __attribute__((visibility ("hidden"), constructor(101))) init_lazysan() {
   static int initialized = 0;
 
   if (initialized) return;
@@ -289,6 +291,12 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   dangling_ptrs->RBPrintNode = print_dangling;
 #endif
 
+}
+
+/* if this is called too early, getenv will return NULL */
+void __attribute__((visibility ("hidden"), constructor(65535))) init_lazysan_late() {
+  if (getenv("LS_DISABLE"))
+    ls_disable = 1;
 }
 
 __attribute__((section(".preinit_array"),
@@ -738,7 +746,7 @@ static void free_common(char *base, unsigned long source) {
 
   ls_dec_ptrlog(base, info->size);
   DEBUG_HIGH(memset(base, 0, info->size));
-  if (info->refcnt <= 0) {
+  if (ls_disable || info->refcnt <= 0) {
     delete_obj_info(info);
     ls_free(base, info);
   } else {
