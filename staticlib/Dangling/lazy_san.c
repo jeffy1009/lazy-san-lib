@@ -1,10 +1,12 @@
 #define _GNU_SOURCE
+#include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <errno.h>
 #include "lsan_common.h"
 #include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
@@ -193,9 +195,30 @@ static unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
 static unsigned long num_ptrs = 0;
 static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
 static unsigned long num_incdec = 0, same_ldst_cnt = 0;
-#endif
 
-#ifdef DEBUG_LS
+static FILE *fp;
+
+static void timer_handler(int signum) {
+  fprintf(fp, "%ld ", quarantine_size);
+}
+
+static void register_timer() {
+  struct sigaction sa;
+  struct itimerval timer;
+
+  memset(&sa, 0, sizeof (sa));
+  sa.sa_handler = &timer_handler;
+  sigaction(SIGVTALRM, &sa, NULL);
+
+  timer.it_value.tv_sec = 1;
+  timer.it_value.tv_usec = 0;
+
+  timer.it_interval.tv_sec = 1;
+  timer.it_interval.tv_usec = 0;
+
+  setitimer(ITIMER_VIRTUAL, &timer, NULL);
+}
+
 void atexit_hook() {
   ls_dec_ptrlog_int(0, &_end, 0);
 
@@ -205,6 +228,8 @@ void atexit_hook() {
   fprintf(stderr, "num ptrs: %ld\n", num_ptrs);
   fprintf(stderr, "quarantine max: %ld B, cur: %ld B\n", quarantine_max, quarantine_size);
   fprintf(stderr, "num incdec: %ld, same ldst cnt: %ld\n", num_incdec, same_ldst_cnt);
+
+  fclose(fp);
 }
 #endif
 
@@ -213,9 +238,6 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
 
   if (initialized) return;
   initialized = 1;
-
-  DEBUG(if (atexit(atexit_hook))
-          fprintf(stderr, "atexit failed!\n"));
 
   /* sys_mmap from gperftools/src/base/linux_syscall_support.h
      gives much better performance and memory usage */
@@ -243,6 +265,18 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
          (unsigned long)ls_meta_space_tmp);
 
+  metalloc_malloc_posthook = alloc_common;
+  metalloc_realloc_posthook = realloc_hook;
+  metalloc_free_prehook = free_common;
+
+#ifdef DEBUG_LS
+  fp = fopen("quarantine.log", "w");
+  register_timer();
+
+  if (atexit(atexit_hook))
+    fprintf(stderr, "atexit failed!\n");
+#endif
+
 #ifdef DEBUG_LS_HIGH
   rb_root = RBTreeCreate();
   rb_root->RBTreeCompare = compare_range;
@@ -255,9 +289,6 @@ void __attribute__((visibility ("hidden"), constructor(-1))) init_lazysan() {
   dangling_ptrs->RBPrintNode = print_dangling;
 #endif
 
-  metalloc_malloc_posthook = alloc_common;
-  metalloc_realloc_posthook = realloc_hook;
-  metalloc_free_prehook = free_common;
 }
 
 __attribute__((section(".preinit_array"),
@@ -653,6 +684,8 @@ void __attribute__((noinline)) ls_dec_ptrlog_addr(char *p, char *end) {
 /********************/
 
 static void alloc_common(char *base, unsigned long size) {
+  alloc_obj_info(base, size);
+
 #ifdef DEBUG_LS
   if (++alloc_cur > alloc_max)
     alloc_max = alloc_cur;
@@ -668,8 +701,6 @@ static void alloc_common(char *base, unsigned long size) {
     }
   }
 #endif
-
-  alloc_obj_info(base, size);
 
 #ifdef DEBUG_LS_HIGH
   /* stop point for fast debugging */
