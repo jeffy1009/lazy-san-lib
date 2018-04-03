@@ -724,14 +724,15 @@ static void free_common(char *base, unsigned long source) {
   DEBUG(--alloc_cur);
 
   ls_obj_info *info = get_obj_info(base);
-  if (info->flags & LS_INFO_FREED)
-    fprintf(stderr, "[lazy-san] attempt to double free pointer 0x%lx\n",
-            (unsigned long)base);
-  if (info->base != base) {
+  if (!info || info->base != base) {
     fprintf(stderr, "[lazy-san] attempt to free invalid pointer 0x%lx\n",
             (unsigned long)base);
     return;
   }
+
+  if (info->flags & LS_INFO_FREED)
+    fprintf(stderr, "[lazy-san] attempt to double free pointer 0x%lx\n",
+            (unsigned long)base);
 
   switch (source) {
   case 1: {
