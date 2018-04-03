@@ -7,6 +7,7 @@ OBJDIR=./obj
 CFLAGS += -O3
 # you can uncomment or supply these to make invocation
 # LS_DEBUG=y # insert debugging code
+#LS_DEBUG_HIGH=y # enable more debugging code including tracking not freed object
 
 EXE=$(OBJDIR)/libmetadata.a
 
@@ -17,6 +18,10 @@ DEPS    := $(OBJS:.o=.d)
 
 ifdef LS_DEBUG
 CFLAGS += -DDEBUG_LS
+endif
+
+ifdef LS_DEBUG_HIGH
+CFLAGS += -DDEBUG_LS_HIGH
 endif
 
 all: directories $(EXE)
