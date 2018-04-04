@@ -111,7 +111,7 @@ static unsigned long metaget_8(unsigned long ptrInt) {
     return 0;
   unsigned long alignment = entry & 0xFF;
   char *metabase = (char*)(entry >> 8);
-  unsigned long pageOffset = ptrInt - (page * METALLOC_PAGESIZE);
+  unsigned long pageOffset = ptrInt & (METALLOC_PAGESIZE-1);
   char *metaptr = metabase + ((pageOffset >> alignment) * 8);
   return *(unsigned long *)metaptr;
 }
