@@ -39,6 +39,18 @@
 #define RBTREE_INSERT_THRESHOLD 4096
 #endif
 
+#ifdef ENABLE_MULTITHREAD
+#define INC_REFCNT(x) atomic_fetch_add((atomic_ulong*)&(x)->refcnt, 1)
+#define DEC_REFCNT(x) atomic_fetch_sub((atomic_ulong*)&(x)->refcnt, 1)
+#define PTRLOG_OR(x, y) atomic_fetch_or((atomic_ulong*)&(x), (y))
+#define PTRLOG_AND(x, y) atomic_fetch_and((atomic_ulong*)&(x), (y))
+#else
+#define INC_REFCNT(x) ++(x)->refcnt
+#define DEC_REFCNT(x) --(x)->refcnt
+#define PTRLOG_OR(x, y) (x) |= (y)
+#define PTRLOG_AND(x, y) (x) &= (y)
+#endif
+
 static unsigned long * const global_ptrlog = (unsigned long *)GLOBAL_PTRLOG_BASE;
 static ls_obj_info * const ls_meta_space = (ls_obj_info *)LS_META_SPACE_BASE;
 static unsigned long num_obj_info = 0;
@@ -329,7 +341,7 @@ static void ls_inc_refcnt(char *p, char *dest, int setbit) {
   if (info) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
             fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
-    atomic_fetch_add((atomic_ulong*)&info->refcnt, 1);
+    INC_REFCNT(info);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
 
     if (setbit) {
@@ -337,7 +349,7 @@ static void ls_inc_refcnt(char *p, char *dest, int setbit) {
       offset = (unsigned long)dest >> 3;
       widx = offset >> 6; /* word index */
       bidx = offset & 0x3F; /* bit index */
-      atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
+      PTRLOG_OR(global_ptrlog[widx], (1UL << bidx));
     }
   }
 }
@@ -351,7 +363,7 @@ static void ls_dec_refcnt(char *p, char *dummy) {
         info->flags |= LS_INFO_RCBELOWZERO;
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
-    atomic_fetch_sub((atomic_ulong*)&info->refcnt, 1);
+    DEC_REFCNT(info);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base)
                  RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
     if (info->refcnt<=0) {
@@ -382,7 +394,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
   if (!need_dec)
     return;
 
-  atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
+  PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
   DEBUG(num_incdec++);
 
   old_info = get_obj_info((char*)*(unsigned long*)(offset << 3));
@@ -394,7 +406,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
       /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
     });
 
-  atomic_fetch_sub((atomic_ulong*)&old_info->refcnt, 1);
+  DEC_REFCNT(old_info);
   DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
                RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
   if (old_info->refcnt<=0) {
@@ -443,9 +455,9 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       return;
     }
     if (!info) {
-      atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
+      PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
     } else {
-      atomic_fetch_add((atomic_ulong*)&info->refcnt, 1);
+      INC_REFCNT(info);
       DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
     }
 
@@ -457,7 +469,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
 
-    atomic_fetch_sub((atomic_ulong*)&old_info->refcnt, 1);
+    DEC_REFCNT(old_info);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
                  RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
     if (old_info->refcnt<=0) {
@@ -471,8 +483,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
          register. */
     }
   } else if (info) {
-    atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
-    atomic_fetch_add((atomic_ulong*)&info->refcnt, 1);
+    PTRLOG_OR(global_ptrlog[widx], (1UL << bidx));
+    INC_REFCNT(info);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
   }
 }
@@ -643,7 +655,7 @@ static void ls_dec_ptrlog_int(char *p, char *end, int clearbit) {
       ls_dec_refcnt((char*)*(pw+tmp), (char*)(pw+tmp));
       pl_val &= (pl_val - 1);
     }
-    if (clearbit) atomic_fetch_and((atomic_ulong*)pl, (mask | mask_e));
+    if (clearbit) PTRLOG_AND(*pl, (mask | mask_e));
     return;
   }
 
@@ -653,7 +665,7 @@ static void ls_dec_ptrlog_int(char *p, char *end, int clearbit) {
     ls_dec_refcnt((char*)*(pw+tmp), (char*)(pw+tmp));
     pl_val &= (pl_val - 1);
   }
-  if (clearbit) atomic_fetch_and((atomic_ulong*)pl, mask);
+  if (clearbit) PTRLOG_AND(*pl, mask);
   pl++, pw+=(64-bidx);
 
   while (pl < pl_e) {
@@ -673,7 +685,7 @@ static void ls_dec_ptrlog_int(char *p, char *end, int clearbit) {
     ls_dec_refcnt((char*)*(pw + tmp), (char*)(pw+tmp));
     pl_val &= (pl_val - 1);
   }
-  if (clearbit) atomic_fetch_and((atomic_ulong*)pl, mask_e);
+  if (clearbit) PTRLOG_AND(*pl, mask_e);
 }
 
 void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
