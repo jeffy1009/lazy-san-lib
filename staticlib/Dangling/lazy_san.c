@@ -329,7 +329,7 @@ static void ls_inc_refcnt(char *p, char *dest, int setbit) {
   if (info) {
     DEBUG(if ((info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
             fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
-    atomic_fetch_add((atomic_int*)&info->refcnt, 1);
+    atomic_fetch_add((atomic_ulong*)&info->refcnt, 1);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
 
     if (setbit) {
@@ -351,7 +351,7 @@ static void ls_dec_refcnt(char *p, char *dummy) {
         info->flags |= LS_INFO_RCBELOWZERO;
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
-    atomic_fetch_sub((atomic_int*)&info->refcnt, 1);
+    atomic_fetch_sub((atomic_ulong*)&info->refcnt, 1);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base)
                  RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
     if (info->refcnt<=0) {
@@ -394,7 +394,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
       /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
     });
 
-  atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
+  atomic_fetch_sub((atomic_ulong*)&old_info->refcnt, 1);
   DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
                RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
   if (old_info->refcnt<=0) {
@@ -445,7 +445,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
     if (!info) {
       atomic_fetch_and((atomic_ulong*)&global_ptrlog[widx], ~(1UL << bidx));
     } else {
-      atomic_fetch_add((atomic_int*)&info->refcnt, 1);
+      atomic_fetch_add((atomic_ulong*)&info->refcnt, 1);
       DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
     }
 
@@ -457,7 +457,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
         /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
       });
 
-    atomic_fetch_sub((atomic_int*)&old_info->refcnt, 1);
+    atomic_fetch_sub((atomic_ulong*)&old_info->refcnt, 1);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
                  RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
     if (old_info->refcnt<=0) {
@@ -472,7 +472,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
     }
   } else if (info) {
     atomic_fetch_or((atomic_ulong*)&global_ptrlog[widx], (1UL << bidx));
-    atomic_fetch_add((atomic_int*)&info->refcnt, 1);
+    atomic_fetch_add((atomic_ulong*)&info->refcnt, 1);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
   }
 }

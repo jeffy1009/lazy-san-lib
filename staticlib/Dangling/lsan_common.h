@@ -15,8 +15,8 @@
 typedef struct ls_obj_info_t {
   char *base;
   unsigned long size;
-  int refcnt;
-  int flags;
+  unsigned long refcnt;
+  unsigned long flags;
 } ls_obj_info;
 
 extern __thread bool malloc_flag;
