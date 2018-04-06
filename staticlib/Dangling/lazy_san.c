@@ -335,7 +335,9 @@ __attribute__((section(".preinit_array"),
 /**  Refcnt modification  ****/
 /*****************************/
 
-static inline void ls_free(char *p, ls_obj_info *info) {
+static inline void ls_free(ls_obj_info *info) {
+  char *p = info->base; /* copy before it gets deleted */
+  delete_obj_info(info);
   free_flag = 1;
   switch (info->flags & LS_INFO_USE_MASK) {
   case 0: free(p); break;
@@ -385,10 +387,8 @@ static void ls_dec_refcnt(char *p, char *dummy) {
                  RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
     if (info->refcnt<=0) {
       if (info->flags & LS_INFO_FREED) { /* marked to be freed */
-        char *tmp = info->base;
         DEBUG(quarantine_size -= info->size);
-        delete_obj_info(info);
-        ls_free(tmp, info);
+        ls_free(info);
       }
       /* if not yet freed, the pointer is probably in some
          register. */
@@ -434,10 +434,8 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
                RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
   if (old_info->refcnt<=0) {
     if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
-      char *tmp = old_info->base;
       DEBUG(quarantine_size -= old_info->size);
-      delete_obj_info(old_info);
-      ls_free(tmp, old_info);
+      ls_free(old_info);
     }
     /* if not yet freed, the pointer is probably in some
        register. */
@@ -502,10 +500,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
                  RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
     if (old_info->refcnt<=0) {
       if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
-        char *tmp = old_info->base;
         DEBUG(quarantine_size -= old_info->size);
-        delete_obj_info(old_info);
-        ls_free(tmp, old_info);
+        ls_free(old_info);
       }
       /* if not yet freed, the pointer is probably in some
          register. */
@@ -799,8 +795,7 @@ static void free_common(char *base, unsigned long source) {
   ls_dec_ptrlog(base, info->size);
   DEBUG_HIGH(memset(base, 0, info->size));
   if (ls_disable || info->refcnt <= 0) {
-    delete_obj_info(info);
-    ls_free(base, info);
+    ls_free(info);
   } else {
     info->flags |= LS_INFO_FREED;
     DEBUG(quarantine_size += info->size);
