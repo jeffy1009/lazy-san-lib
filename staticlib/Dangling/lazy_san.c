@@ -64,7 +64,14 @@ static unsigned long num_obj_info = 0;
 
 static int ls_disable = 0;
 
+#ifdef DEBUG_LS
 __attribute__ ((visibility("hidden"))) extern char _end;
+
+static unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
+static unsigned long num_obj_info_max = 0;
+static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
+static unsigned long num_ptrs = 0, num_incdec = 0, same_ldst_cnt = 0;
+#endif
 
 #ifdef DEBUG_LS_HIGH
 static rb_red_blk_tree *rb_root = NULL;
@@ -123,9 +130,10 @@ static unsigned long metaget_8(unsigned long ptrInt) {
   return *(unsigned long *)metaptr;
 }
 
+static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
+
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   static unsigned long cur_meta_idx = 0;
-  static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
   static const unsigned long meta_idx_max = LS_META_SPACE_MAX_SIZE/sizeof(ls_obj_info);
   ls_obj_info *cur;
   do {
@@ -135,6 +143,8 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
 
   metaset_8((unsigned long)base, size, (unsigned long)cur);
   ++num_obj_info;
+  DEBUG(if (num_obj_info > num_obj_info_max)
+    num_obj_info_max = num_obj_info);
   /* keep meta space large enough to have sufficient vacant slots */
   if ((num_obj_info+num_obj_info/4) > meta_idx_limit) {
     if ((num_obj_info+num_obj_info/4) > meta_idx_max)
@@ -212,11 +222,6 @@ static void print_dangling(const rb_red_blk_node *a) {
 #endif
 
 #ifdef DEBUG_LS
-static unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
-static unsigned long num_ptrs = 0;
-static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
-static unsigned long num_incdec = 0, same_ldst_cnt = 0;
-
 static FILE *fp;
 
 static void timer_handler(int signum) {
@@ -246,9 +251,11 @@ void atexit_hook() {
   fprintf(stderr, "PROGRAM TERMINATED!\n");
   fprintf(stderr, "max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
          alloc_max, alloc_cur, alloc_tot);
-  fprintf(stderr, "num ptrs: %ld\n", num_ptrs);
+  fprintf(stderr, "num obj_info max: %ld, meta_idx_limit: %ld\n",
+    num_obj_info_max, meta_idx_limit);
   fprintf(stderr, "quarantine max: %ld B, cur: %ld B\n", quarantine_max, quarantine_size);
-  fprintf(stderr, "num incdec: %ld, same ldst cnt: %ld\n", num_incdec, same_ldst_cnt);
+  fprintf(stderr, "num ptrs: %ld, num incdec: %ld, same ldst cnt: %ld\n",
+    num_ptrs, num_incdec, same_ldst_cnt);
 
   fclose(fp);
 }
@@ -313,7 +320,6 @@ void __attribute__((visibility ("hidden"), constructor(101))) init_lazysan() {
   dangling_ptrs->RBTreeCompareBase = compare_dangling_ptr;
   dangling_ptrs->RBPrintNode = print_dangling;
 #endif
-
 }
 
 /* if this is called too early, getenv will return NULL */
