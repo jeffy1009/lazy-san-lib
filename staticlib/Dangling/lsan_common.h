@@ -15,8 +15,12 @@
 typedef struct ls_obj_info_t {
   int flags:16;
   unsigned long base:48;
+#if defined(DEBUG_LS) || defined(DEBUG_LS_HIGH)
   unsigned int size;
   int refcnt;
+#else
+  long refcnt;
+#endif
 } ls_obj_info;
 
 extern __thread bool malloc_flag;

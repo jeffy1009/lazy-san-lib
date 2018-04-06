@@ -99,6 +99,7 @@ void _ZdaPv(void *);
 static void alloc_common(char *base, unsigned long size);
 static void free_common(char *base, unsigned long source);
 static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size);
+size_t tc_malloc_size(void *);
 
 static unsigned long metaset_8(unsigned long ptrInt,
                                unsigned long count, unsigned long value) {
@@ -152,7 +153,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
     meta_idx_limit *= 2;
   }
   cur->base = (unsigned long)base;
-  cur->size = size;
+  DEBUG(cur->size = size);
   cur->refcnt = REFCNT_INIT;
   cur->flags = 0;
   return cur;
@@ -163,8 +164,6 @@ static ls_obj_info *get_obj_info(char *p) {
     return (ls_obj_info*)metaget_8((unsigned long)p);
   return NULL;
 }
-
-size_t tc_malloc_size(void *);
 
 static void delete_obj_info(ls_obj_info *info) {
   DEBUG_HIGH(RBDelete(rb_root, RBExactQuery(rb_root, info->base)));
@@ -792,7 +791,7 @@ static void free_common(char *base, unsigned long source) {
   }
   }
 
-  ls_dec_ptrlog(base, info->size);
+  ls_dec_ptrlog(base, tc_malloc_size(base));
   DEBUG_HIGH(memset(base, 0, info->size));
   if (ls_disable || info->refcnt <= 0) {
     ls_free(info);
@@ -805,12 +804,11 @@ static void free_common(char *base, unsigned long source) {
 }
 
 static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size) {
-  ls_obj_info *info = get_obj_info(old_ptr);
   if (old_ptr != new_ptr) {
-    ls_copy_ptrlog(new_ptr, old_ptr, info->size);
+    ls_copy_ptrlog(new_ptr, old_ptr, tc_malloc_size(old_ptr));
     free_common(old_ptr, 0);
   } else {
-    info->size = size;
+    DEBUG(get_obj_info(old_ptr)->size = size);
   }
 }
 
