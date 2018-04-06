@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <asm/prctl.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -6,6 +7,7 @@
 #include <string.h>
 #include <assert.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/time.h>
 #include <errno.h>
 #include "lsan_common.h"
@@ -27,7 +29,9 @@
 #define DEBUG_HIGH(x) do { ; } while (0)
 #endif
 
-#define GLOBAL_PTRLOG_BASE 0x408000000000  /* next to metalloc pagetable */
+#define PAGETABLE_BASE ((char*)pageTable)
+#define PAGETABLE_SIZE 0x008000000000
+#define GLOBAL_PTRLOG_BASE (PAGETABLE_BASE+PAGETABLE_SIZE)
 #define GLOBAL_PTRLOG_SIZE 0x020000000000  /* 2TB */
 #define GLOBAL_PTRLOG_END (GLOBAL_PTRLOG_BASE+GLOBAL_PTRLOG_SIZE)
 #define LS_META_SPACE_BASE GLOBAL_PTRLOG_END
@@ -38,6 +42,9 @@
 #ifdef DEBUG_LS_HIGH
 #define RBTREE_INSERT_THRESHOLD 4096
 #endif
+
+#define GS_RELATIVE __attribute__((address_space(256)))
+#define GS_ULONG unsigned long GS_RELATIVE
 
 #ifdef ENABLE_MULTITHREAD
 #define INC_REFCNT(x) atomic_fetch_add((atomic_ulong*)&(x)->refcnt, 1)
@@ -89,7 +96,7 @@ static void realloc_hook(char *old_ptr, char *new_ptr, unsigned long size);
 static unsigned long metaset_8(unsigned long ptrInt,
                                unsigned long count, unsigned long value) {
   unsigned long page = ptrInt / METALLOC_PAGESIZE;
-  unsigned long entry = pageTable[page];
+  unsigned long entry = *(GS_ULONG *)(page*sizeof(unsigned long));
   unsigned long alignment = entry & 0xFF;
   char *metabase = (char*)(entry >> 8);
   unsigned long pageOffset = ptrInt - (page * METALLOC_PAGESIZE);
@@ -106,7 +113,7 @@ static unsigned long metaset_8(unsigned long ptrInt,
 
 static unsigned long metaget_8(unsigned long ptrInt) {
   unsigned long page = ptrInt / METALLOC_PAGESIZE;
-  unsigned long entry = pageTable[page];
+  unsigned long entry = *(GS_ULONG *)(page*sizeof(unsigned long));
   if (unlikely(entry == 0))
     return 0;
   unsigned long alignment = entry & 0xFF;
@@ -247,6 +254,8 @@ void atexit_hook() {
 }
 #endif
 
+int arch_prctl(int code, unsigned long addr);
+
 void __attribute__((visibility ("hidden"), constructor(101))) init_lazysan() {
   static int initialized = 0;
 
@@ -282,6 +291,8 @@ void __attribute__((visibility ("hidden"), constructor(101))) init_lazysan() {
   metalloc_malloc_posthook = alloc_common;
   metalloc_realloc_posthook = realloc_hook;
   metalloc_free_prehook = free_common;
+
+  arch_prctl(ARCH_SET_GS, (unsigned long)PAGETABLE_BASE);
 
 #ifdef DEBUG_LS
   fp = fopen("quarantine.log", "w");
@@ -388,13 +399,19 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
   offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
   bidx = offset & 0x3F; /* bit index */
-  tmp_ptrlog_val = global_ptrlog[widx];
+  tmp_ptrlog_val = *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long));
   need_dec = (tmp_ptrlog_val & (1UL << bidx));
 
   if (!need_dec)
     return;
 
+  /* llvm-3.8 doesn't support atomic_ on GS segment */
+#ifdef ENABLE_MULTITHREAD
   PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
+#else
+  *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) =
+    tmp_ptrlog_val & ~(1UL << bidx);
+#endif
   DEBUG(num_incdec++);
 
   old_info = get_obj_info((char*)*(unsigned long*)(offset << 3));
@@ -437,7 +454,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
   bidx = offset & 0x3F; /* bit index */
-  tmp_ptrlog_val = global_ptrlog[widx];
+  tmp_ptrlog_val = *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long));
 
   need_dec = (tmp_ptrlog_val & (1UL << bidx));
 
@@ -455,7 +472,12 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
       return;
     }
     if (!info) {
+#ifdef ENABLE_MULTITHREAD
       PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
+#else
+      *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long))
+        = tmp_ptrlog_val & ~(1UL << bidx);
+#endif
     } else {
       INC_REFCNT(info);
       DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
@@ -483,7 +505,12 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
          register. */
     }
   } else if (info) {
+#ifdef ENABLE_MULTITHREAD
     PTRLOG_OR(global_ptrlog[widx], (1UL << bidx));
+#else
+    *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) =
+      tmp_ptrlog_val | (1UL << bidx);
+#endif
     INC_REFCNT(info);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
   }
