@@ -13,10 +13,10 @@
 #define LS_INFO_RCBELOWZERO 	0x10000
 
 typedef struct ls_obj_info_t {
-  char *base;
-  unsigned long size;
-  unsigned long refcnt;
-  unsigned long flags;
+  int flags:16;
+  unsigned long base:48;
+  unsigned int size;
+  int refcnt;
 } ls_obj_info;
 
 extern __thread bool malloc_flag;

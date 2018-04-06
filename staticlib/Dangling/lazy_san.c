@@ -151,7 +151,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
       fprintf(stderr, "[lazy-san] num obj info reached the limit!\n");
     meta_idx_limit *= 2;
   }
-  cur->base = base;
+  cur->base = (unsigned long)base;
   cur->size = size;
   cur->refcnt = REFCNT_INIT;
   cur->flags = 0;
@@ -168,7 +168,7 @@ size_t tc_malloc_size(void *);
 
 static void delete_obj_info(ls_obj_info *info) {
   DEBUG_HIGH(RBDelete(rb_root, RBExactQuery(rb_root, info->base)));
-  metaset_8((unsigned long)info->base, tc_malloc_size(info->base), 0);
+  metaset_8(info->base, tc_malloc_size((char*)info->base), 0);
   info->base = 0;
   --num_obj_info;
 }
@@ -336,7 +336,7 @@ __attribute__((section(".preinit_array"),
 /*****************************/
 
 static inline void ls_free(ls_obj_info *info) {
-  char *p = info->base; /* copy before it gets deleted */
+  char *p = (char*)info->base; /* copy before it gets deleted */
   delete_obj_info(info);
   free_flag = 1;
   switch (info->flags & LS_INFO_USE_MASK) {
@@ -765,7 +765,7 @@ static void free_common(char *base, unsigned long source) {
   DEBUG(--alloc_cur);
 
   ls_obj_info *info = get_obj_info(base);
-  if (!info || info->base != base) {
+  if (!info || (char*)info->base != base) {
     fprintf(stderr, "[lazy-san] attempt to free invalid pointer 0x%lx\n",
             (unsigned long)base);
     return;
