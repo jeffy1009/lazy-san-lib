@@ -396,17 +396,16 @@ static void ls_dec_refcnt(char *p, char *dummy) {
 }
 
 void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
-  unsigned long offset, widx, bidx;
-  unsigned long need_dec;
+  unsigned long offset, widx;
+  char need_dec;
   unsigned long tmp_ptrlog_val;
   ls_obj_info *old_info;
 
   offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
-  bidx = offset & 0x3F; /* bit index */
   tmp_ptrlog_val = *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long));
-  need_dec = (tmp_ptrlog_val & (1UL << bidx));
-
+  asm volatile ("btr %1, %2; setc %0"
+                : "=r" (need_dec) : "r" (offset), "r" (tmp_ptrlog_val));
   if (!need_dec)
     return;
 
@@ -414,8 +413,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
 #ifdef ENABLE_MULTITHREAD
   PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
 #else
-  *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) =
-    tmp_ptrlog_val & ~(1UL << bidx);
+  *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
 #endif
   DEBUG(num_incdec++);
 
@@ -447,26 +445,22 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
 // one again..
 void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   ls_obj_info *info, *old_info;
-  unsigned long offset, widx, bidx;
-  unsigned long need_dec;
+  unsigned long offset, widx;
+  char need_dec;
   unsigned long tmp_ptrlog_val;
 
   DEBUG(num_ptrs++);
   DEBUG(num_incdec++);
 
-  offset = (unsigned long)dest >> 3;
-  widx = offset >> 6; /* word index */
-  bidx = offset & 0x3F; /* bit index */
-  tmp_ptrlog_val = *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long));
-
-  need_dec = (tmp_ptrlog_val & (1UL << bidx));
-
   info = get_obj_info(p);
-  if (!info && !need_dec)
-    return;
-
   DEBUG(if (info && (info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
           fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
+
+  offset = (unsigned long)dest >> 3;
+  widx = offset >> 6; /* word index */
+  tmp_ptrlog_val = *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long));
+  asm volatile ("bt %1, %2; setc %0"
+                : "=r" (need_dec) : "r" (offset), "r" (tmp_ptrlog_val));
 
   if (need_dec) {
     old_info = get_obj_info((char*)(*(unsigned long*)(offset << 3)));
@@ -478,8 +472,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
 #ifdef ENABLE_MULTITHREAD
       PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
 #else
-      *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long))
-        = tmp_ptrlog_val & ~(1UL << bidx);
+      asm volatile ("btr %0, %1" : : "r" (offset), "r" (tmp_ptrlog_val));
+      *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
 #endif
     } else {
       INC_REFCNT(info);
@@ -509,8 +503,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
 #ifdef ENABLE_MULTITHREAD
     PTRLOG_OR(global_ptrlog[widx], (1UL << bidx));
 #else
-    *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) =
-      tmp_ptrlog_val | (1UL << bidx);
+    asm volatile ("bts %0, %1" : : "r" (offset), "r" (tmp_ptrlog_val));
+    *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
 #endif
     INC_REFCNT(info);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
