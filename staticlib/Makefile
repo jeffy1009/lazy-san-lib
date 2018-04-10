@@ -1,7 +1,7 @@
-CC=clang
+CC=gcc
 METAPAGETABLEDIR=../metapagetable
 INCLUDES=-I. -I$(METAPAGETABLEDIR)
-CFLAGS=-c -Wall -flto -fPIC -std=gnu11
+CFLAGS=-c -Wall -fPIC -std=gnu11
 OBJDIR=./obj
 
 CFLAGS += -O3

@@ -43,8 +43,11 @@
 #define RBTREE_INSERT_THRESHOLD 4096
 #endif
 
-#define GS_RELATIVE __attribute__((address_space(256)))
-#define GS_ULONG unsigned long GS_RELATIVE
+#ifndef __SEG_GS
+#error "Need gcc version 6.x or above to support segment registers"
+#else
+#define GS_ULONG volatile unsigned long __seg_gs
+#endif
 
 #ifdef ENABLE_MULTITHREAD
 #define INC_REFCNT(x) atomic_fetch_add((atomic_ulong*)&(x)->refcnt, 1)
@@ -397,17 +400,14 @@ static void ls_dec_refcnt(char *p, char *dummy) {
 
 void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
   unsigned long offset, widx;
-  char need_dec;
   unsigned long tmp_ptrlog_val;
   ls_obj_info *old_info;
 
   offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
   tmp_ptrlog_val = *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long));
-  asm volatile ("btr %1, %2; setc %0"
-                : "=r" (need_dec) : "r" (offset), "r" (tmp_ptrlog_val));
-  if (!need_dec)
-    return;
+  asm volatile ("btr %1, %0" : "+r" (tmp_ptrlog_val) : "r" (offset));
+  asm volatile goto ("jae %l0" : : : : no_need_dec);
 
   /* llvm-3.8 doesn't support atomic_ on GS segment */
 #ifdef ENABLE_MULTITHREAD
@@ -437,6 +437,8 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
     /* if not yet freed, the pointer is probably in some
        register. */
   }
+ no_need_dec:
+  return;
 }
 
 // NOTE: we should increase refcnt before decreasing it..
@@ -446,7 +448,6 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
 void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   ls_obj_info *info, *old_info;
   unsigned long offset, widx;
-  char need_dec;
   unsigned long tmp_ptrlog_val;
 
   DEBUG(num_ptrs++);
@@ -459,51 +460,53 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
   tmp_ptrlog_val = *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long));
-  asm volatile ("bt %1, %2; setc %0"
-                : "=r" (need_dec) : "r" (offset), "r" (tmp_ptrlog_val));
+  asm volatile goto ("bt %0, %1; jae %l2"
+                     : : "r" (offset), "r" (tmp_ptrlog_val) : : no_need_dec);
 
-  if (need_dec) {
-    old_info = get_obj_info((char*)(*(unsigned long*)(offset << 3)));
-    if (info == old_info) {
-      DEBUG(same_ldst_cnt++);
-      return;
-    }
-    if (!info) {
+  old_info = get_obj_info((char*)(*(unsigned long*)(offset << 3)));
+  if (info == old_info) {
+    DEBUG(same_ldst_cnt++);
+    return;
+  }
+  if (!info) {
 #ifdef ENABLE_MULTITHREAD
-      PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
+    PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
 #else
-      asm volatile ("btr %0, %1" : : "r" (offset), "r" (tmp_ptrlog_val));
-      *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
+    asm volatile ("btr %1, %0" : "+r" (tmp_ptrlog_val) : "r" (offset));
+    *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
 #endif
-    } else {
-      INC_REFCNT(info);
-      DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+  } else {
+    INC_REFCNT(info);
+    DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base) RBTreeInsert(dangling_ptrs, dest));
+  }
+
+  if (!old_info)
+    return;
+
+  DEBUG(if (old_info->refcnt<=REFCNT_INIT && !(old_info->flags & LS_INFO_RCBELOWZERO)) {
+      old_info->flags |= LS_INFO_RCBELOWZERO;
+      /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
+    });
+
+  DEC_REFCNT(old_info);
+  DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
+               RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
+  if (old_info->refcnt<=0) {
+    if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
+      DEBUG(quarantine_size -= old_info->size);
+      ls_free(old_info);
     }
+    /* if not yet freed, the pointer is probably in some
+       register. */
+  }
+  return;
 
-    if (!old_info)
-      return;
-
-    DEBUG(if (old_info->refcnt<=REFCNT_INIT && !(old_info->flags & LS_INFO_RCBELOWZERO)) {
-        old_info->flags |= LS_INFO_RCBELOWZERO;
-        /* fprintf(stderr, "[lazy-san] refcnt <= 0???\n"); */
-      });
-
-    DEC_REFCNT(old_info);
-    DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
-                 RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
-    if (old_info->refcnt<=0) {
-      if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
-        DEBUG(quarantine_size -= old_info->size);
-        ls_free(old_info);
-      }
-      /* if not yet freed, the pointer is probably in some
-         register. */
-    }
-  } else if (info) {
+ no_need_dec:
+  if (info) {
 #ifdef ENABLE_MULTITHREAD
     PTRLOG_OR(global_ptrlog[widx], (1UL << bidx));
 #else
-    asm volatile ("bts %0, %1" : : "r" (offset), "r" (tmp_ptrlog_val));
+    asm volatile ("bts %1, %0" : "+r" (tmp_ptrlog_val) : "r" (offset));
     *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
 #endif
     INC_REFCNT(info);
