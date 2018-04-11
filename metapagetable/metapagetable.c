@@ -90,6 +90,8 @@ void set_metapagetable_entries(void *ptr, unsigned long size, void *metaptr, int
         exit(-1);
     }
     // Get the page number
+    if (ptr > (void*)0x800000000000)
+      return;
     unsigned long page = (unsigned long)ptr / METALLOC_PAGESIZE;
     // Get the page count
     unsigned long count = size / METALLOC_PAGESIZE;
