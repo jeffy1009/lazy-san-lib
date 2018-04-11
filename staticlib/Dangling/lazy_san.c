@@ -52,11 +52,15 @@
 #endif
 
 #ifdef ENABLE_MULTITHREAD
+#define __THREAD __thread
+#define ATOMIC_INC(x) atomic_fetch_add((atomic_ulong*)&(x), 1)
 #define INC_REFCNT(x) atomic_fetch_add((atomic_ulong*)&(x)->refcnt, 1)
 #define DEC_REFCNT(x) atomic_fetch_sub((atomic_ulong*)&(x)->refcnt, 1)
 #define PTRLOG_OR(x, y) atomic_fetch_or((atomic_ulong*)&(x), (y))
 #define PTRLOG_AND(x, y) atomic_fetch_and((atomic_ulong*)&(x), (y))
 #else
+#define __THREAD
+#define ATOMIC_INC(x) ++(x)
 #define INC_REFCNT(x) ++(x)->refcnt
 #define DEC_REFCNT(x) --(x)->refcnt
 #define PTRLOG_OR(x, y) (x) |= (y)
@@ -139,28 +143,44 @@ static unsigned long metaget_8(unsigned long ptrInt) {
 static unsigned long meta_idx_limit = (1UL<<12)/sizeof(ls_obj_info);
 
 static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
-  static unsigned long cur_meta_idx = 0;
+  static __THREAD unsigned long cur_meta_idx = 0;
   static const unsigned long meta_idx_max = LS_META_SPACE_MAX_SIZE/sizeof(ls_obj_info);
   ls_obj_info *cur;
+#ifdef ENABLE_MULTITHREAD
+  unsigned long expected;
+ retry:
+#endif
+
   do {
     cur = ls_meta_space + cur_meta_idx;
     if (++cur_meta_idx >= meta_idx_limit) cur_meta_idx = 0;
   } while (*(unsigned long*)cur);
 
-  metaset_8((unsigned long)base, size, (unsigned long)cur);
-  ++num_obj_info;
-  DEBUG(if (num_obj_info > num_obj_info_max)
-    num_obj_info_max = num_obj_info);
-  /* keep meta space large enough to have sufficient vacant slots */
-  if ((num_obj_info+num_obj_info/4) > meta_idx_limit) {
-    if ((num_obj_info+num_obj_info/4) > meta_idx_max)
-      fprintf(stderr, "[lazy-san] num obj info reached the limit!\n");
-    meta_idx_limit *= 2;
-  }
+#ifdef ENABLE_MULTITHREAD
+  expected = 0;
+  if (!atomic_compare_exchange_strong((atomic_ulong*)cur, &expected,
+                                      (unsigned long)base<<16))
+    goto retry;
+#else
   cur->flags = 0;
   cur->base = (unsigned long)base;
+#endif
   DEBUG(cur->size = size);
   cur->refcnt = REFCNT_INIT;
+
+  metaset_8((unsigned long)base, size, (unsigned long)cur);
+  ATOMIC_INC(num_obj_info);
+  DEBUG(if (num_obj_info > num_obj_info_max)
+    num_obj_info_max = num_obj_info);
+
+  /* keep meta space large enough to have sufficient vacant slots */
+  unsigned long meta_idx_limit_tmp = meta_idx_limit;
+  if ((num_obj_info+num_obj_info/4) > meta_idx_limit_tmp) {
+    if ((num_obj_info+num_obj_info/4) > meta_idx_max)
+      fprintf(stderr, "[lazy-san] num obj info reached the limit!\n");
+    meta_idx_limit = meta_idx_limit_tmp*2;
+  }
+
   return cur;
 }
 
