@@ -145,7 +145,7 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
   do {
     cur = ls_meta_space + cur_meta_idx;
     if (++cur_meta_idx >= meta_idx_limit) cur_meta_idx = 0;
-  } while (cur->base != 0);
+  } while (*(unsigned long*)cur);
 
   metaset_8((unsigned long)base, size, (unsigned long)cur);
   ++num_obj_info;
@@ -157,10 +157,10 @@ static ls_obj_info *alloc_obj_info(char *base, unsigned long size) {
       fprintf(stderr, "[lazy-san] num obj info reached the limit!\n");
     meta_idx_limit *= 2;
   }
+  cur->flags = 0;
   cur->base = (unsigned long)base;
   DEBUG(cur->size = size);
   cur->refcnt = REFCNT_INIT;
-  cur->flags = 0;
   return cur;
 }
 
@@ -173,7 +173,7 @@ static ls_obj_info *get_obj_info(char *p) {
 static void delete_obj_info(ls_obj_info *info) {
   DEBUG_HIGH(RBDelete(rb_root, RBExactQuery(rb_root, info->base)));
   metaset_8(info->base, tc_malloc_size((char*)info->base), 0);
-  info->base = 0;
+  memset(info, 0, sizeof(ls_obj_info));
   --num_obj_info;
 }
 
@@ -341,9 +341,12 @@ __attribute__((section(".preinit_array"),
 
 static inline void ls_free(ls_obj_info *info) {
   char *p = (char*)info->base; /* copy before it gets deleted */
+  int flags = info->flags;
+
   delete_obj_info(info);
+
   free_flag = 1;
-  switch (info->flags & LS_INFO_USE_MASK) {
+  switch (flags & LS_INFO_USE_MASK) {
   case 0: free(p); break;
   case LS_INFO_USE_ZDLPV: _ZdlPv(p); break;
   case LS_INFO_USE_ZDAPV: _ZdaPv(p); break;
