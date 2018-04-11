@@ -1,7 +1,9 @@
 #define _GNU_SOURCE
 #include <asm/prctl.h>
 #include <signal.h>
+#ifdef ENABLE_MULTITHREAD
 #include <stdatomic.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -411,7 +413,9 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
 
   /* llvm-3.8 doesn't support atomic_ on GS segment */
 #ifdef ENABLE_MULTITHREAD
-  PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
+  asm volatile ("lock btr %1, %%gs:%0"
+                : "=m" (*(unsigned long*)(PAGETABLE_SIZE+widx*sizeof(unsigned long)))
+                : "r" (offset&0x3f));
 #else
   *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
 #endif
@@ -470,7 +474,9 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   }
   if (!info) {
 #ifdef ENABLE_MULTITHREAD
-    PTRLOG_AND(global_ptrlog[widx], ~(1UL << bidx));
+    asm volatile ("lock btr %1, %%gs:%0"
+                  : "=m" (*(unsigned long*)(PAGETABLE_SIZE+widx*sizeof(unsigned long)))
+                  : "r" (offset&0x3f));
 #else
     asm volatile ("btr %1, %0" : "+r" (tmp_ptrlog_val) : "r" (offset));
     *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
@@ -504,7 +510,9 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
  no_need_dec:
   if (info) {
 #ifdef ENABLE_MULTITHREAD
-    PTRLOG_OR(global_ptrlog[widx], (1UL << bidx));
+    asm volatile ("lock bts %1, %%gs:%0"
+                  : "=m" (*(unsigned long*)(PAGETABLE_SIZE+widx*sizeof(unsigned long)))
+                  : "r" (offset&0x3f));
 #else
     asm volatile ("bts %1, %0" : "+r" (tmp_ptrlog_val) : "r" (offset));
     *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
