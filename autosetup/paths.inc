@@ -13,3 +13,4 @@
 : ${PATHLLVMPLUGINS="$PATHAUTOFRAMEWORKOBJ/llvm-plugins"}
 : ${PATHLOG="$PATHAUTOSETUP/logs/autosetup.txt"}
 # PATHSPEC must be set by the user
+# PATHLLVM must be set by the user

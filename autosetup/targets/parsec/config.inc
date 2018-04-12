@@ -17,7 +17,7 @@ makewrapper()
 	name="$1"
 	shift
 	(
-		echo "#!$PATHAUTOPREFIX/bin/bash"
+		echo "#!/bin/bash"
 		echo "set -e"
 		echo "$PATHROOT/autosetup/targets/parsec/run-dedup.py $* \"\$@\""
 	) > "$pathwrappers/bin/$name"
@@ -29,10 +29,10 @@ makewrapper cpp    "$cc -E"
 makewrapper gcc    "$cc $ccflto"
 makewrapper g++    "$cxx $ccflto"
 makewrapper ar     "$ar"
-makewrapper as     "$PATHAUTOPREFIX/bin/llvm-as"
-makewrapper ld     "$PATHAUTOPREFIX/bin/ld.gold -plugin $PATHAUTOPREFIX/lib/LLVMgold.so"
-makewrapper make   "$PATHAUTOPREFIX/bin/make"
-makewrapper m4     "$PATHAUTOPREFIX/bin/m4"
+makewrapper as     "$PATHLLVM/bin/llvm-as"
+makewrapper ld     "/usr/bin/ld.gold"
+makewrapper make   "/usr/bin/make"
+makewrapper m4     "/usr/bin/m4"
 makewrapper ranlib "$ranlib"
 
 parsecsettingadd()

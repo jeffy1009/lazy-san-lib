@@ -7,15 +7,15 @@ unset CONFIG_SAFESTACK_OPTIONS
 
 unset CONFIG_STATICLIB_MAKE
 
-ar="$PATHAUTOPREFIX/bin/llvm-ar"
-cc="$PATHAUTOPREFIX/bin/clang"
-cxx="$PATHAUTOPREFIX/bin/clang++"
+ar="$PATHLLVM/bin/llvm-ar"
+cc="$PATHLLVM/bin/clang"
+cxx="$PATHLLVM/bin/clang++"
 cflags="$EXTRA_CFLAGS"
 ldflagsalways="$EXTRA_LDFLAGS"
 ldflagsnolib=""
 ldflagslib=""
-nm="$PATHAUTOPREFIX/bin/llvm-nm"
-ranlib="$PATHAUTOPREFIX/bin/llvm-ranlib"
+nm="$PATHLLVM/bin/llvm-nm"
+ranlib="$PATHLLVM/bin/llvm-ranlib"
 blacklist=""
 run_wrapper=""
 post_build_hooks=()
