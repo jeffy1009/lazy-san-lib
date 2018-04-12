@@ -4,5 +4,5 @@ source "$PATHROOT/autosetup/targets/spec-cpu2006/benchmarks.inc" # BENCHMARKS_SP
 : ${INSTANCES=lazysan baseline-lto}
 : ${INSTANCESUFFIX=}
 : ${JOBSMAX=16}
-: ${TARGETS=spec-cpu2006}
+: ${TARGETS=parsec spec-cpu2006}
 : ${THREADCOUNTS:="1 2 4 8 16 32 64"}

@@ -237,6 +237,17 @@ for instance in $INSTANCES; do
 	esac
 done
 
+echo "initializing targets"
+for target in $TARGETS; do
+    if [ ! -d "$PATHROOT/autosetup/targets/$target" ]; then
+	echo "error: unknown target: $target" >&2
+	exit 1
+    fi
+    if [ -f "$PATHROOT/autosetup/targets/$target/init.inc" ]; then
+	source "$PATHROOT/autosetup/targets/$target/init.inc"
+    fi
+done
+
 # echo "building nothp"
 # cd "$PATHROOT/nothp"
 # run make
