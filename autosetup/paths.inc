@@ -14,3 +14,4 @@
 : ${PATHLOG="$PATHAUTOSETUP/logs/autosetup.txt"}
 # PATHSPEC must be set by the user
 # PATHLLVM must be set by the user
+# PATHOPENMP must be set by the user
