@@ -15,7 +15,7 @@
 #include "lsan_common.h"
 #include "../../gperftools-metalloc/src/base/linux_syscall_support.h"
 
-#ifdef DEBUG_LS
+#ifdef DEBUG_LS_HIGH
 #include "red_black_tree.h"
 #endif
 
@@ -750,7 +750,7 @@ static inline void ls_dec_ptrlog_int(char *p, char *end, int clearbit, int nulli
 
 void __attribute__((noinline)) ls_dec_ptrlog(char *p, unsigned long size) {
   ls_dec_ptrlog_int(p, p+size, 1, 1);
-  DEBUG(memset(p, 0, size));
+  DEBUG_HIGH(memset(p, 0, size));
 }
 
 void __attribute__((noinline)) ls_dec_ptrlog_addr(char *p, char *end) {
@@ -824,7 +824,7 @@ static void free_common(char *base, unsigned long source) {
   }
 
   ls_dec_ptrlog(base, tc_malloc_size(base));
-  DEBUG_HIGH(memset(base, 0, info->size));
+
   if (ls_disable || info->refcnt <= 0) {
     ls_free(info);
   } else {
