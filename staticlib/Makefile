@@ -1,4 +1,7 @@
 CC=gcc
+AR=ar
+RANLIB=ranlib
+
 METAPAGETABLEDIR=../metapagetable
 INCLUDES=-I. -I$(METAPAGETABLEDIR)
 CFLAGS=-c -Wall -fPIC -std=gnu11
@@ -37,8 +40,8 @@ clean:
 	rm -f $(EXE)
 
 $(EXE): $(OBJS) directories
-	llvm-ar crv $@ $(OBJS)
-	llvm-ranlib $@
+	$(AR) crv $@ $(OBJS)
+	$(RANLIB) $@
 
 -include $(DEPS)
 
