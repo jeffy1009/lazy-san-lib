@@ -89,7 +89,7 @@ scriptpathrun="$PATHAUTOSCRIPTSRUN/run-parsec-$instancename.sh"
 	echo ": \${PATHTEMP:=\"$PATHROOT/autosetup.tmp/\`uname -n\`.\$\$\"}"
 	echo "mkdir -p \"\$PATHTEMP\""
 	echo "source env.sh"
-	echo -n "\"$PATHROOT/nothp/nothp\" "
+	[ "$NO_NOTHP" = "" ] && echo -n "\"$PATHROOT/nothp/nothp\" "
 	echo "bin/parsecmgmt -c \"$configname\" -a run -d \"\$PATHTEMP\" \"\$@\""
 	echo "rm -rf \"\$PATHTEMP\""
 	runscript_common_end

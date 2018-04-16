@@ -248,9 +248,10 @@ for target in $TARGETS; do
     fi
 done
 
-# echo "building nothp"
-# cd "$PATHROOT/nothp"
-# run make
+# not prepended with run. we want to continue even if it fails
+echo "building nothp"
+cd "$PATHROOT/nothp"
+make > /dev/null 2>&1 || NO_NOTHP=1
 
 # Configure targets
 for instance in $INSTANCES; do

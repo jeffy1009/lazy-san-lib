@@ -82,7 +82,7 @@ for conftype in build run; do
 			if [ "$runtype" = measuremem ]; then
 				echo "runspec --config=\"$configname\" --action=setup \"\$@\""
 			fi
-			[ "$conftype" = run ] && echo -n "\"$PATHROOT/nothp/nothp\" "
+			[ "$NO_NOTHP" = "" ] && [ "$conftype" = run ] && echo -n "\"$PATHROOT/nothp/nothp\" "
 			[ "$conftype" = run ] && echo -n "\$SPEC_FORCE_CPU_CMD "
 			if [ "$runtype" = measuremem ]; then
 				pathspecrun="$PATHSPEC"
