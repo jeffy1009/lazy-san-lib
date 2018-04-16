@@ -53,9 +53,14 @@
 
 #ifdef ENABLE_MULTITHREAD
 #define __THREAD __thread
+#if defined(DEBUG_LS) || defined(DEBUG_LS_HIGH)
+#define REFCNT_T atomic_int
+#else
+#define REFCNT_T atomic_long
+#endif
 #define ATOMIC_INC(x) atomic_fetch_add((atomic_ulong*)&(x), 1)
-#define INC_REFCNT(x) atomic_fetch_add((atomic_ulong*)&(x)->refcnt, 1)
-#define DEC_REFCNT(x) atomic_fetch_sub((atomic_ulong*)&(x)->refcnt, 1)
+#define INC_REFCNT(x) atomic_fetch_add((REFCNT_T*)&(x)->refcnt, 1)
+#define DEC_REFCNT(x) atomic_fetch_sub((REFCNT_T*)&(x)->refcnt, 1)
 #define PTRLOG_OR(x, y) atomic_fetch_or((atomic_ulong*)&(x), (y))
 #define PTRLOG_AND(x, y) atomic_fetch_and((atomic_ulong*)&(x), (y))
 #else
