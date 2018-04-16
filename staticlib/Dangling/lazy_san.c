@@ -373,6 +373,17 @@ static inline void ls_free(ls_obj_info *info) {
   }
 }
 
+static inline void process_zero_rc(ls_obj_info *info) {
+  if (info->refcnt<=0) {
+    if (info->flags & LS_INFO_FREED) { /* marked to be freed */
+      DEBUG(quarantine_size -= info->size);
+      ls_free(info);
+    }
+    /* if not yet freed, the pointer is probably in some
+       register. */
+  }
+}
+
 /* p - written pointer value
    dest - store destination
    setbit - whether or not bit field should be set, should be constant-folded
@@ -412,14 +423,7 @@ static void ls_dec_refcnt(char *p, char *dummy) {
     DEC_REFCNT(info);
     DEBUG_HIGH(if (dbg_on && dbg_ptr==info->base)
                  RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dummy)));
-    if (info->refcnt<=0) {
-      if (info->flags & LS_INFO_FREED) { /* marked to be freed */
-        DEBUG(quarantine_size -= info->size);
-        ls_free(info);
-      }
-      /* if not yet freed, the pointer is probably in some
-         register. */
-    }
+    process_zero_rc(info);
   }
 }
 
@@ -456,14 +460,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
   DEC_REFCNT(old_info);
   DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
                RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
-  if (old_info->refcnt<=0) {
-    if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
-      DEBUG(quarantine_size -= old_info->size);
-      ls_free(old_info);
-    }
-    /* if not yet freed, the pointer is probably in some
-       register. */
-  }
+  process_zero_rc(old_info);
  no_need_dec:
   return;
 }
@@ -520,14 +517,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   DEC_REFCNT(old_info);
   DEBUG_HIGH(if (dbg_on && dbg_ptr==old_info->base)
                RBDelete(dangling_ptrs, RBExactQuery(dangling_ptrs, dest)));
-  if (old_info->refcnt<=0) {
-    if (old_info->flags & LS_INFO_FREED) { /* marked to be freed */
-      DEBUG(quarantine_size -= old_info->size);
-      ls_free(old_info);
-    }
-    /* if not yet freed, the pointer is probably in some
-       register. */
-  }
+  process_zero_rc(old_info);
   return;
 
  no_need_dec:
