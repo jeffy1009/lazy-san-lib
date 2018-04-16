@@ -1,0 +1,76 @@
+--- ./benchspec/CPU2006/403.gcc/src/ggc-page.c	2005-06-03 11:43:52.000000000 +0900
++++ ./benchspec/CPU2006/403.gcc/src/ggc-page.c	2018-04-10 14:28:51.996867437 +0900
+@@ -1378,7 +1378,7 @@
+     }
+ }
+ 
+-#ifdef GGC_POISON
++/* #ifdef GGC_POISON */
+ /* Clobber all free objects.  */
+ 
+ static inline void
+@@ -1409,12 +1409,13 @@
+ 	      word = i / HOST_BITS_PER_LONG;
+ 	      bit = i % HOST_BITS_PER_LONG;
+ 	      if (((p->in_use_p[word] >> bit) & 1) == 0)
+-		memset (p->page + i * size, 0xa5, size);
++		/* memset (p->page + i * size, 0xa5, size); */
++		memset (p->page + i * size, 0, size);
+ 	    }
+ 	}
+     }
+ }
+-#endif
++/* #endif */
+ 
+ /* Top level mark-and-sweep routine.  */
+ 
+@@ -1444,9 +1445,9 @@
+   clear_marks ();
+   ggc_mark_roots ();
+   
+-#ifdef GGC_POISON
++/* #ifdef GGC_POISON */
+   poison_pages ();
+-#endif
++/* #endif */
+ 
+   sweep_pages ();
+ 
+--- ./benchspec/CPU2006/403.gcc/src/obstack.c	2005-06-03 11:43:52.000000000 +0900
++++ ./benchspec/CPU2006/403.gcc/src/obstack.c	2018-04-10 15:56:19.712866811 +0900
+@@ -41,9 +41,9 @@
+ #include <stdio.h>		/* Random thing to get __GNU_LIBRARY__.  */
+ #if !defined (_LIBC) && defined (__GNU_LIBRARY__) && __GNU_LIBRARY__ > 1
+ #include <gnu-versions.h>
+-#if _GNU_OBSTACK_INTERFACE_VERSION == OBSTACK_INTERFACE_VERSION
+-#define ELIDE_CODE
+-#endif
++/* #if _GNU_OBSTACK_INTERFACE_VERSION == OBSTACK_INTERFACE_VERSION */
++/* #define ELIDE_CODE */
++/* #endif */
+ #endif
+ 
+ 
+@@ -427,6 +427,7 @@
+       h->object_base = h->next_free = (char *) (obj);
+       h->chunk_limit = lp->limit;
+       h->chunk = lp;
++      memset(obj, 0, (void*)h->chunk_limit-obj);
+     }
+   else if (obj != 0)
+     /* obj is not in any of the chunks! */
+--- ./benchspec/CPU2006/403.gcc/src/obstack.h	2005-06-03 11:43:52.000000000 +0900
++++ ./benchspec/CPU2006/403.gcc/src/obstack.h	2018-04-10 15:54:59.044866820 +0900
+@@ -487,8 +487,10 @@
+ __extension__								\
+ ({ struct obstack *__o = (OBSTACK);					\
+    void *__obj = (OBJ);							\
+-   if (__obj > (void *)__o->chunk && __obj < (void *)__o->chunk_limit)  \
++   if (__obj > (void *)__o->chunk && __obj < (void *)__o->chunk_limit){ \
+      __o->next_free = __o->object_base = __obj;				\
++     memset(__obj, 0, (void*)__o->chunk_limit-__obj);                   \
++   }                                                                    \
+    else (obstack_free) (__o, __obj); })
+ 
+ #else /* not __GNUC__ or not __STDC__ */
