@@ -1,5 +1,5 @@
---- a/main.cpp	2013-07-28 23:38:52.000000000 +0900
-+++ b/main.cpp	2018-04-16 19:50:11.616803276 +0900
+--- ./pkgs/kernels/canneal/src/main.cpp	2013-07-28 23:38:52.000000000 +0900
++++ ./pkgs/kernels/canneal/src/main.cpp	2018-04-16 19:50:11.616803276 +0900
 @@ -138,4 +138,5 @@
  {
  	annealer_thread* ptr = static_cast<annealer_thread*>(data);
