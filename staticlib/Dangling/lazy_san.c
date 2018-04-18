@@ -59,6 +59,9 @@
 #define REFCNT_T atomic_long
 #endif
 #define ATOMIC_INC(x) atomic_fetch_add((atomic_ulong*)&(x), 1)
+#define ATOMIC_DEC(x) atomic_fetch_sub((atomic_ulong*)&(x), 1)
+#define ATOMIC_INC_N(x, n) atomic_fetch_add((atomic_ulong*)&(x), n)
+#define ATOMIC_DEC_N(x, n) atomic_fetch_sub((atomic_ulong*)&(x), n)
 #define INC_REFCNT(x) atomic_fetch_add((REFCNT_T*)&(x)->refcnt, 1)
 #define DEC_REFCNT(x) atomic_fetch_sub((REFCNT_T*)&(x)->refcnt, 1)
 #define PTRLOG_OR(x, y) atomic_fetch_or((atomic_ulong*)&(x), (y))
@@ -66,6 +69,9 @@
 #else
 #define __THREAD
 #define ATOMIC_INC(x) ++(x)
+#define ATOMIC_DEC(x) --(x)
+#define ATOMIC_INC_N(x, n) ((x)+=n)
+#define ATOMIC_DEC_N(x, n) ((x)-=n)
 #define INC_REFCNT(x) ++(x)->refcnt
 #define DEC_REFCNT(x) --(x)->refcnt
 #define PTRLOG_OR(x, y) (x) |= (y)
@@ -381,7 +387,7 @@ static inline void ls_free(ls_obj_info *info) {
 static inline void process_zero_rc(ls_obj_info *info) {
   if (info->refcnt<=0) {
     if (info->flags & LS_INFO_FREED) { /* marked to be freed */
-      DEBUG(quarantine_size -= info->size);
+      DEBUG(ATOMIC_DEC_N(quarantine_size, info->size));
       ls_free(info);
     }
     /* if not yet freed, the pointer is probably in some
@@ -397,7 +403,7 @@ static void ls_inc_refcnt(char *p, char *dest, int setbit) {
   ls_obj_info *info;
   unsigned long offset, widx, bidx;
 
-  DEBUG(num_ptrs++);
+  DEBUG(ATOMIC_INC(num_ptrs));
   info = get_obj_info(p);
 
   if (info) {
@@ -451,7 +457,7 @@ void __attribute__((noinline)) ls_incdec_refcnt_noinc(char *dest) {
 #else
   *(GS_ULONG *)(PAGETABLE_SIZE+widx*sizeof(unsigned long)) = tmp_ptrlog_val;
 #endif
-  DEBUG(num_incdec++);
+  DEBUG(ATOMIC_INC(num_incdec));
 
   old_info = get_obj_info((char*)*(unsigned long*)(offset << 3));
   if (!old_info)
@@ -479,8 +485,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   unsigned long offset, widx;
   unsigned long tmp_ptrlog_val;
 
-  DEBUG(num_ptrs++);
-  DEBUG(num_incdec++);
+  DEBUG(ATOMIC_INC(num_ptrs));
+  DEBUG(ATOMIC_INC(num_incdec));
 
   info = get_obj_info(p);
   DEBUG(if (info && (info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
@@ -494,7 +500,7 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
 
   old_info = get_obj_info((char*)(*(unsigned long*)(offset << 3)));
   if (info == old_info) {
-    DEBUG(same_ldst_cnt++);
+    DEBUG(ATOMIC_INC(same_ldst_cnt));
     return;
   }
   if (!info) {
@@ -762,10 +768,11 @@ static void alloc_common(char *base, unsigned long size) {
   alloc_obj_info(base, size);
 
 #ifdef DEBUG_LS
-  if (++alloc_cur > alloc_max)
+  ATOMIC_INC(alloc_cur);
+  if (alloc_cur > alloc_max)
     alloc_max = alloc_cur;
 
-  ++alloc_tot;
+  ATOMIC_INC(alloc_tot);
   if (quarantine_size > quarantine_max) {
     unsigned long quarantine_mb_tmp;
     quarantine_max = quarantine_size;
@@ -788,7 +795,7 @@ static void free_common(char *base, unsigned long source) {
   if (base == 0)
     return;
 
-  DEBUG(--alloc_cur);
+  DEBUG(ATOMIC_DEC(alloc_cur));
 
   ls_obj_info *info = get_obj_info(base);
   if (!info || (char*)info->base != base) {
@@ -824,7 +831,7 @@ static void free_common(char *base, unsigned long source) {
     ls_free(info);
   } else {
     info->flags |= LS_INFO_FREED;
-    DEBUG(quarantine_size += info->size);
+    DEBUG(ATOMIC_INC_N(quarantine_size, info->size));
     DEBUG_HIGH(if (info->size > RBTREE_INSERT_THRESHOLD)
                  RBTreeInsert(rb_root, (void*)info));
   }
