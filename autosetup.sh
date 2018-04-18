@@ -82,8 +82,8 @@ runscript_common_start()
 {
 	echo "#!/bin/bash"
 	echo "set -e"
-	echo "export LD_LIBRARY_PATH=\"$prefixlib:$PATHAUTOPREFIX/lib:\$LD_LIBRARY_PATH\""
-	echo "export PATH=\"$PATHAUTOPREFIX/bin:\$PATH\""
+	echo "export LD_LIBRARY_PATH=\"$prefixlib:$PATHOPENMP/lib:$PATHAUTOPREFIX/lib:\$LD_LIBRARY_PATH\""
+	echo "export PATH=\"$PATHLLVM/bin:$PATHAUTOPREFIX/bin:\$PATH\""
 	echo "export TCMALLOC_LARGE_ALLOC_REPORT_THRESHOLD=281474976710656"
 	[ -z "$CONFIG_SAFESTACK_OPTIONS" ] || echo "export SAFESTACK_OPTIONS=$CONFIG_SAFESTACK_OPTIONS"
 	echo "PATHROOT=\"$PATHROOT\""
@@ -269,7 +269,7 @@ for instance in $INSTANCES; do
 		fi
 	done
 done
-exit 0
+
 
 # Build targets
 for instance in $INSTANCES; do

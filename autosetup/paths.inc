@@ -12,6 +12,6 @@
 : ${PATHAUTOSTATE="$PATHAUTOSETUP/state"}
 : ${PATHLLVMPLUGINS="$PATHAUTOFRAMEWORKOBJ/llvm-plugins"}
 : ${PATHLOG="$PATHAUTOSETUP/logs/autosetup.txt"}
+[ -n "$PATHLLVM" ] || { echo "PATHLLVM must be set by the user" && exit; }
+[ -n "$PATHOPENMP" ] || { echo "PATHOPENMP must be set by the user" && exit; }
 # PATHSPEC must be set by the user
-# PATHLLVM must be set by the user
-# PATHOPENMP must be set by the user

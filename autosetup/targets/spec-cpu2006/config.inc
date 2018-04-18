@@ -38,6 +38,9 @@ for conftype in build run; do
 		echo "400.perlbench=default=default=default:"
 		echo "CPORTABILITY   = -DSPEC_CPU_LINUX_X64"
 		echo ""
+		echo "447.dealII=default=default=default:"
+		echo "CXXPORTABILITY = -include cstdlib -include cstring"
+		echo ""
 		echo "462.libquantum=default=default=default:"
 		echo "CPORTABILITY   =  -DSPEC_CPU_LINUX"
 		echo ""
@@ -77,7 +80,7 @@ for conftype in build run; do
 			echo "export PERLBREW_HOME=\"$PERLBREW_HOME\""
 			echo "export PERLBREW_ROOT=\"$PERLBREW_ROOT\""
 			echo "cd \"$PATHSPEC\""
-			echo "source \"$PERLBREW_ROOT/etc/bashrc\""
+			echo "source \"$PERLBREW_ROOT/etc/bash.bashrc\""
 			echo "source \"$PATHSPEC/shrc\""
 			if [ "$runtype" = measuremem ]; then
 				echo "runspec --config=\"$configname\" --action=setup \"\$@\""
