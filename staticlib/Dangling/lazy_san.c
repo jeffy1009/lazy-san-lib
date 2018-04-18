@@ -39,7 +39,7 @@
 #define LS_META_SPACE_BASE GLOBAL_PTRLOG_END
 #define LS_META_SPACE_MAX_SIZE 0x40000000 /* 1GB */
 /* TODO: get exact heap end instead of this fixed value */
-#define HEAP_END_ADDR 0x000400000000 /* 16GB */
+#define HEAP_END_ADDR 0x000800000000 /* 32GB */
 
 #ifdef DEBUG_LS_HIGH
 #define RBTREE_INSERT_THRESHOLD 4096
