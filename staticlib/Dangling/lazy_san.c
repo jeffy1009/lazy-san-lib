@@ -315,8 +315,8 @@ void __attribute__((visibility ("hidden"), constructor(101))) init_lazysan() {
     fprintf(stderr, "[lazy-san] global_ptrlog mmap failed: errno %d\n", errno);
     exit(0);
   }
-  fprintf(stderr, "[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n",
-         (unsigned long)global_ptrlog_tmp);
+  DEBUG(fprintf(stderr, "[lazy-san] global_ptrlog mmap'ed @ 0x%lx\n",
+                (unsigned long)global_ptrlog_tmp));
 
   ls_obj_info *ls_meta_space_tmp =
     sys_mmap((void*)GLOBAL_PTRLOG_END, LS_META_SPACE_MAX_SIZE,
@@ -327,8 +327,8 @@ void __attribute__((visibility ("hidden"), constructor(101))) init_lazysan() {
     fprintf(stderr, "[lazy-san] ls_meta_space mmap failed: errno %d\n", errno);
     exit(0);
   }
-  fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
-         (unsigned long)ls_meta_space_tmp);
+  DEBUG(fprintf(stderr, "[lazy-san] ls_meta_space mmap'ed @ 0x%lx\n",
+                (unsigned long)ls_meta_space_tmp));
 
   metalloc_malloc_posthook = alloc_common;
   metalloc_realloc_posthook = realloc_hook;
