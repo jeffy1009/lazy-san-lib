@@ -491,6 +491,8 @@ void __attribute__((noinline)) ls_incdec_refcnt(char *p, char *dest) {
   info = get_obj_info(p);
   DEBUG(if (info && (info->flags & LS_INFO_FREED) && info->refcnt == REFCNT_INIT)
           fprintf(stderr, "[lazy-san] refcnt became alive again??\n"));
+  DEBUG(if (info && ((unsigned long)dest & 0x7))
+    fprintf(stderr, "[lazy-san] unaligned pointer assignment @ 0x%lx\n", dest));
 
   offset = (unsigned long)dest >> 3;
   widx = offset >> 6; /* word index */
