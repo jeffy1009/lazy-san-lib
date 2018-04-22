@@ -1,0 +1,112 @@
+--- ./pkgs/apps/freqmine/src/Makefile
++++ ./pkgs/apps/freqmine/src/Makefile
+@@ -4,8 +4,6 @@ TARGET = freqmine
+ 
+ CXXFLAGS += -Wno-deprecated
+ 
+-CXXFLAGS += -O2
+-
+ all: $(TARGET)
+ 
+ $(TARGET): fpgrowth.o data.o fp_tree.o buffer.o fsout.o fp_node.o wtime.o
+--- ./pkgs/apps/freqmine/src/buffer.cpp
++++ ./pkgs/apps/freqmine/src/buffer.cpp
+@@ -174,7 +174,8 @@ char* memory::bufmark(unsigned int*MR, int* MC)		// set a mark in the buffer for
+ void memory::freebuf(unsigned int MR, int MC, char* MB)	//clear the buffer above the mark 
+ {	
+ 	int i;
+-//	register char *pts;
++        unsigned long Diff = 0;
++	register char *pts;
+ //	for(i=markcount+1; i <= bufcount; i++) 
+ int freesize = 0;
+ 	for(i=MC+1; i <= bufcount; i++) 
+@@ -190,8 +191,12 @@ int freesize = 0;
+     bufcount=MC;
+ 
+ 	// clear area: positions markbuf to start-1 are used
+-//	for(pts = start[MC]; pts != MB; *(--pts) = 0);
++	for(pts = start[MC]; pts != MB; *(--pts) = 0);
+ 	freesize+= MR - rest[bufcount];
++        if ((unsigned long)MB & 0x7) {
++          Diff = 8 - ((unsigned long)MB & 0x7);
++          MB += Diff; MR -= Diff;
++        }
+ 	start[bufcount] = MB; rest[bufcount] = MR;
+ }
+ 
+--- ./pkgs/apps/freqmine/src/buffer.h
++++ ./pkgs/apps/freqmine/src/buffer.h
+@@ -34,7 +34,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
+ 
+ #ifndef BUFFERCLASS
+ #define BUFFERCLASS
+-#define L2BITS	        0x3   // L2BITS: the two least sig. bits
++#define L2BITS	        0x7   // L2BITS: the two least sig. bits
+ 
+ #define MULTOF		8		// MULTOF: addresses should start at numbers which are divisible by MULTOF 
+ 
+--- ./pkgs/apps/freqmine/src/fp_tree.cpp
++++ ./pkgs/apps/freqmine/src/fp_tree.cpp
+@@ -805,8 +805,9 @@ void FP_tree::scan1_DB(Data* fdat)
+ 	thread_mapfile = (MapFile **)database_buf->newbuf(1, workingthread*3*sizeof(int*));
+ 	ntypearray = (int **) (thread_mapfile + workingthread);
+ 	threadntypeoffsetiter = (int **) (ntypearray + workingthread);
+-	first_MC_tree = (int *) fp_tree_buf[0]->newbuf(1, workingthread*(2*sizeof(int) + sizeof(int*)));
++	first_MC_tree = (int *) fp_tree_buf[0]->newbuf(1, workingthread*(2*sizeof(int) + sizeof(int*)) + 4);
+ 	first_MB_tree = (char **) (first_MC_tree + workingthread);
++        first_MB_tree = (char **)((((unsigned long)first_MB_tree+7)>>3)<<3);
+ 	first_MR_tree = (unsigned int *) (first_MB_tree + workingthread);
+ 	for (i = 0; i < workingthread; i ++) {
+ 		first_MB_tree[i] = fp_tree_buf[i]->bufmark(&first_MR_tree[i], &first_MC_tree[i]);
+@@ -818,7 +819,7 @@ void FP_tree::scan1_DB(Data* fdat)
+ 		threadntypeoffsetiter[i] = (int *) (ntypearray[i] + hot_node_num);
+ 	}
+ 	{
+-		currentnodeiter = (int***)fp_buf[thread]->newbuf(1, workingthread * 25 * sizeof(int*) + itemno * 2 * sizeof(int*) + num_hot_node * 2 * sizeof(int*));
++		currentnodeiter = (int***)fp_buf[thread]->newbuf(1, workingthread * 25 * sizeof(int*) + itemno * 2 * sizeof(int*) + num_hot_node * 2 * sizeof(int*) + 4 + 4);
+ 		itemstack = (int**) (currentnodeiter + workingthread);
+ 		origin = itemstack + workingthread;
+ 		global_count_array = origin + workingthread;
+@@ -841,11 +842,13 @@ void FP_tree::scan1_DB(Data* fdat)
+ 		rightsib_backpatch_stack = fast_rightsib_table + workingthread;
+ 		nodenum = (int *) (rightsib_backpatch_stack + workingthread);
+ 		NodeArrayList = (int **) (nodenum + itemno);
++                NodeArrayList = (int**)((((unsigned long)NodeArrayList+7)>>3)<<3);
+ 		thread_finish_status = (int *) (NodeArrayList + itemno);
+ 		thread_begin_status = thread_finish_status + workingthread;
+ 		hot_node_depth = thread_begin_status + workingthread;
+ 		hot_node_index = hot_node_depth + num_hot_node;
+ 		global_nodenum = (int **) (hot_node_index + num_hot_node);
++                global_nodenum = (int**)((((unsigned long)global_nodenum+7)>>3)<<3);
+ 		for (i = 0; i < workingthread; i ++) {
+ 			list[i] = new stack(itemno);
+ 			thread_finish_status[i] = itemno;
+@@ -880,7 +883,7 @@ void FP_tree::scan1_DB(Data* fdat)
+ 		sched_setaffinity(k, sizeof(unsigned long), &cpu_mask);
+ #endif
+ #endif
+-		currentnodeiter[k] = (int**)fp_buf[k]->newbuf(1, itemno * (14 + fast_rightsib_table_size) * sizeof(int *) + num_hot_node * 2 * sizeof(int *)  + (fast_rightsib_table_size * itemno) * sizeof(int *) + fast_rightsib_table_size + 3 * sizeof(int*));
++		currentnodeiter[k] = (int**)fp_buf[k]->newbuf(1, itemno * (14 + fast_rightsib_table_size) * sizeof(int *) + num_hot_node * 2 * sizeof(int *)  + (fast_rightsib_table_size * itemno) * sizeof(int *) + fast_rightsib_table_size + 3 * sizeof(int*) + 4 + 4 + 4);
+ 		nodestack[k] = (Fnode**)(currentnodeiter[k] + itemno);
+ 		itemstack[k] = (int*)(nodestack[k] + itemno);
+ 		global_count_array[k] = itemstack[k] + itemno;
+@@ -893,8 +896,10 @@ void FP_tree::scan1_DB(Data* fdat)
+ 		compact[k] = bran[k] + itemno;
+ 		prefix[k] = compact[k] + itemno;
+ 		hashtable[k] = (Fnode**) (prefix[k] + itemno);
++                hashtable[k] = (Fnode**)((((unsigned long)hashtable[k]+7)>>3)<<3);
+ 		origin[k] = (int *) (hashtable[k] + num_hot_node);
+ 		hot_node_count[k] = (int *) (origin[k] + itemno);
++                hot_node_count[k] = (int*)((((unsigned long)hot_node_count[k]+7)>>3)<<3);
+ 		fast_rightsib_table[k] = (Fnode ***) (hot_node_count[k] + num_hot_node);
+ 		fast_rightsib_table[k][0] = (Fnode **) (fast_rightsib_table[k] + fast_rightsib_table_size);
+ 		for (i = 1; i < fast_rightsib_table_size; i ++)
+@@ -907,6 +912,7 @@ void FP_tree::scan1_DB(Data* fdat)
+ 		rightsib_backpatch_count[k] = new_data_num[k] + 1;
+ 		sum_item_num[k] = rightsib_backpatch_count[k] + 1;
+ 		rightsib_backpatch_stack[k] = (Fnode ***) (sum_item_num[k] + 1);
++                rightsib_backpatch_stack[k] = (Fnode ***)((((unsigned long)rightsib_backpatch_stack[k]+7)>>3)<<3);
+ 		rightsib_backpatch_count[k][0] = 0;
+ 		for (i = 0; i < itemno * fast_rightsib_table_size; i ++)
+ 			fast_rightsib_table[k][0][i] = NULL;

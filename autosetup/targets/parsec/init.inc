@@ -7,3 +7,8 @@ if [ ! -f .autosetup.patched-parsec_canneal ]; then
     run patch -p0 < "$PATHROOT/patches/parsec_canneal.patch"
     touch .autosetup.patched-parsec_canneal
 fi
+
+if [ ! -f .autosetup.patched-parsec_freqmine_lazysan ]; then
+    run patch -p0 < "$PATHROOT/patches/parsec_freqmine_lazysan.patch"
+    touch .autosetup.patched-parsec_freqmine_lazysan
+fi
