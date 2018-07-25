@@ -201,11 +201,23 @@ static ls_obj_info *get_obj_info(char *p) {
   return NULL;
 }
 
-static void delete_obj_info(ls_obj_info *info) {
-  DEBUG_HIGH(RBDelete(rb_root, RBExactQuery(rb_root, info->base)));
-  metaset_8(info->base, tc_malloc_size((char*)info->base), 0);
+static int delete_obj_info(ls_obj_info *info, char *base) {
+  DEBUG_HIGH(RBDelete(rb_root, RBExactQuery(rb_root, base)));
+#ifdef DEBUG_LS
+  int size = info->size;
+#endif
+
+#ifdef ENABLE_MULTITHREAD
+  unsigned long expected = *(unsigned long*)info;
+  if (!expected || !atomic_compare_exchange_strong((atomic_ulong*)info, &expected, 0))
+    return 1;
+#endif
+
+  DEBUG(ATOMIC_DEC_N(quarantine_size, size));
+  metaset_8(base, tc_malloc_size(base), 0);
   memset(info, 0, sizeof(ls_obj_info));
   --num_obj_info;
+  return 0;
 }
 
 #ifdef DEBUG_LS_HIGH
@@ -374,7 +386,8 @@ static inline void ls_free(ls_obj_info *info) {
   char *p = (char*)info->base; /* copy before it gets deleted */
   int flags = info->flags;
 
-  delete_obj_info(info);
+  if (delete_obj_info(info, p))
+    return;
 
   free_flag = 1;
   switch (flags & LS_INFO_USE_MASK) {
@@ -387,7 +400,6 @@ static inline void ls_free(ls_obj_info *info) {
 static inline void process_zero_rc(ls_obj_info *info) {
   if (info->refcnt<=0) {
     if (info->flags & LS_INFO_FREED) { /* marked to be freed */
-      DEBUG(ATOMIC_DEC_N(quarantine_size, info->size));
       ls_free(info);
     }
     /* if not yet freed, the pointer is probably in some
@@ -828,12 +840,12 @@ static void free_common(char *base, unsigned long source) {
   }
 
   ls_dec_ptrlog(base, tc_malloc_size(base));
+  DEBUG(ATOMIC_INC_N(quarantine_size, info->size));
 
   if (ls_disable || info->refcnt <= 0) {
     ls_free(info);
   } else {
     info->flags |= LS_INFO_FREED;
-    DEBUG(ATOMIC_INC_N(quarantine_size, info->size));
     DEBUG_HIGH(if (info->size > RBTREE_INSERT_THRESHOLD)
                  RBTreeInsert(rb_root, (void*)info));
   }
