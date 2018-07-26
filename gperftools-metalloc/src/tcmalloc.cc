@@ -1826,8 +1826,14 @@ extern "C" PERFTOOLS_DLL_DECL void tc_delete(void* p) __THROW {
 // (via ::operator delete(ptr, nothrow)).
 // But it's really the same as normal delete, so we just do the same thing.
 extern "C" PERFTOOLS_DLL_DECL void tc_delete_nothrow(void* p, const std::nothrow_t&) __THROW {
-  MallocHook::InvokeDeleteHook(p);
-  do_free(p);
+  if (free_flag) {
+    free_flag = 0;
+    MallocHook::InvokeDeleteHook(p);
+    do_free(p);
+  } else {
+    if (metalloc_free_prehook)
+      metalloc_free_prehook((char*)p, 1); // 1 means it is called from delete
+  }
 }
 
 extern "C" PERFTOOLS_DLL_DECL void* tc_newarray(size_t size) {
@@ -1860,8 +1866,14 @@ extern "C" PERFTOOLS_DLL_DECL void tc_deletearray(void* p) __THROW {
 }
 
 extern "C" PERFTOOLS_DLL_DECL void tc_deletearray_nothrow(void* p, const std::nothrow_t&) __THROW {
-  MallocHook::InvokeDeleteHook(p);
-  do_free(p);
+  if (free_flag) {
+    free_flag = 0;
+    MallocHook::InvokeDeleteHook(p);
+    do_free(p);
+  } else {
+    if (metalloc_free_prehook)
+      metalloc_free_prehook((char*)p, 2); // 2 means it is called from delete[]
+  }
 }
 
 extern "C" PERFTOOLS_DLL_DECL void* tc_memalign(size_t align,
