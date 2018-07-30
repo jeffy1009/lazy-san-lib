@@ -89,6 +89,7 @@ __attribute__ ((visibility("hidden"))) extern char _end;
 
 static unsigned long alloc_max = 0, alloc_cur = 0, alloc_tot = 0;
 static unsigned long num_obj_info_max = 0;
+static unsigned long mem_size = 0, mem_max = 0;
 static unsigned long quarantine_size = 0, quarantine_max = 0, quarantine_max_mb = 0;
 static unsigned long num_ptrs = 0, num_incdec = 0, same_ldst_cnt = 0;
 #endif
@@ -293,16 +294,18 @@ static void register_timer() {
 }
 
 void atexit_hook() {
-  ls_dec_ptrlog_int(0, &_end, 0, 0);
-
   fprintf(stderr, "PROGRAM TERMINATED!\n");
   fprintf(stderr, "max alloc: %ld, cur alloc: %ld, tot alloc: %ld\n",
          alloc_max, alloc_cur, alloc_tot);
   fprintf(stderr, "num obj_info max: %ld, meta_idx_limit: %ld\n",
     num_obj_info_max, meta_idx_limit);
+  fprintf(stderr, "mem_size: %ld B, mem_max: %ld\n", mem_size, mem_max);
   fprintf(stderr, "quarantine max: %ld B, cur: %ld B\n", quarantine_max, quarantine_size);
   fprintf(stderr, "num ptrs: %ld, num incdec: %ld, same ldst cnt: %ld\n",
     num_ptrs, num_incdec, same_ldst_cnt);
+
+  ls_dec_ptrlog_int(0, &_end, 0, 0);
+  fprintf(stderr, "quarantine final: %ld B\n", quarantine_size);
 
   fclose(fp);
 }
@@ -786,6 +789,10 @@ static void alloc_common(char *base, unsigned long size) {
   if (alloc_cur > alloc_max)
     alloc_max = alloc_cur;
 
+  ATOMIC_INC_N(mem_size, size);
+  if (mem_size > mem_max)
+    mem_max = mem_size;
+
   ATOMIC_INC(alloc_tot);
   if (quarantine_size > quarantine_max) {
     unsigned long quarantine_mb_tmp;
@@ -839,6 +846,7 @@ static void free_common(char *base, unsigned long source) {
   }
   }
 
+  DEBUG(ATOMIC_DEC_N(mem_size, info->size));
   ls_dec_ptrlog(base, tc_malloc_size(base));
   DEBUG(ATOMIC_INC_N(quarantine_size, info->size));
 
